@@ -171,22 +171,16 @@ td input.carried{color:var(--muted); background:#fcfcfd}
 .lock-ico{font-size:26px; margin-bottom:8px}
 .lock-card h2{font-size:16px; margin:0 0 7px}
 .lock-card p{font-size:12.5px; color:var(--muted); line-height:1.75; margin:0 0 18px}
-.lock-card input[type=password]{margin-bottom:10px; text-align:center; letter-spacing:1px}
+.lock-card input[type=password]{width:100%; box-sizing:border-box; margin-bottom:10px; text-align:center; letter-spacing:1px}
 .lock-card .btn-primary{width:100%; padding:10px; font-size:13.5px}
 .lock-mem{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted);
   justify-content:center; margin:2px 0 14px; cursor:pointer}
 .lock-mem input{margin:0}
 .lock-err{font-size:12px; color:#c0392b; min-height:18px; margin-top:8px}
+.lock-help{font-size:10.5px; color:#aab1bd; line-height:1.7; margin:-2px 0 10px}
+.lock-help a{color:#2f6feb; text-decoration:none}
+.lock-help code{font-size:10.5px; background:var(--line2); padding:0 3px; border-radius:3px}
 .lock-foot{font-size:11px; color:#aab1bd; line-height:1.8; margin-top:12px; border-top:1px solid var(--line2); padding-top:11px}
-/* 线上保存后的落地指引：文件在哪、放哪、执行什么 */
-.exp-file{font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--accent-bg);
-  color:#2f6feb; border-radius:8px; padding:9px 10px; margin:0 0 12px; word-break:break-all; text-align:left}
-.exp-steps{font-size:12.5px; color:#4a5160; line-height:1.9; margin:0 0 10px; padding-left:18px; text-align:left}
-.exp-cmd{font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; background:#15171c; color:#e8eaef;
-  border-radius:8px; padding:10px 11px; margin:0 0 14px; text-align:left; word-break:break-all; user-select:all}
-/* 线上录入时提醒一句：这里的保存是下载，不是写盘 */
-.enc-note{font-size:10.5px; color:#8a5a00; background:#fff6e3; border:1px solid #f3dcae;
-  border-radius:5px; padding:1px 6px; margin-left:7px; white-space:nowrap}
 .who-pick{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px}
 .who{border:1.5px solid var(--line); border-radius:11px; padding:12px 6px 9px; cursor:pointer; transition:.15s}
 .who:hover{border-color:#c9d6f5}
@@ -501,6 +495,9 @@ td input.carried{color:var(--muted); background:#fcfcfd}
     </div>
     <div id="lockTokRow">
       <input type="password" id="lockTok" placeholder="GitHub 令牌（ghp_… 只需一次）" autocomplete="off">
+      <div class="lock-help">令牌＝GitHub 个人访问令牌，只授权 <code>family-finance</code> 这一个仓库的
+        Contents 读写 · <a href="https://github.com/settings/personal-access-tokens/new"
+        target="_blank" rel="noopener">去生成</a></div>
       <label class="lock-mem"><input type="checkbox" id="lockMem" checked>在这台设备记住（用口令加密）</label>
     </div>
     <button class="btn-primary" id="lockBtn">进入</button>
