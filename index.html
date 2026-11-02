@@ -215,6 +215,51 @@
     vertical-align:-2px; margin-right:6px;
   }
   @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- 登录：选人 + 密码 ---------- */
+  .who-pick{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:13px}
+  .who{
+    border:1px solid var(--line); border-radius:11px; padding:13px 6px; cursor:pointer;
+    text-align:center; transition:border-color .15s, background .15s; user-select:none;
+  }
+  .who:hover{border-color:#c3cbd9}
+  .who.on{border-color:var(--accent); background:rgba(43,92,255,.055)}
+  .who .av{
+    width:34px; height:34px; line-height:34px; border-radius:50%; margin:0 auto 7px;
+    font-size:14px; font-weight:640; color:#fff;
+  }
+  .who .av.lin{background:linear-gradient(135deg,#2b5cff,#5b86ff)}
+  .who .av.hui{background:linear-gradient(135deg,#c0508d,#e078b0)}
+  .who .nm{font-size:13px; font-weight:560}
+  .who .rl{font-size:10.5px; color:#a8b0be; margin-top:2px}
+  .who.on .nm{color:var(--accent)}
+
+  /* ---------- 顶部用户标识 ---------- */
+  .user-chip{
+    display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 11px;
+    border:1px solid var(--line); border-radius:9px; background:var(--card);
+    font-size:12.5px; color:var(--text-2); cursor:pointer; white-space:nowrap;
+  }
+  .user-chip:hover{border-color:#c3cbd9}
+  .user-chip .av{
+    width:19px; height:19px; line-height:19px; border-radius:50%; color:#fff;
+    font-size:10px; font-weight:640; text-align:center;
+  }
+  .user-chip .av.lin{background:#2b5cff}
+  .user-chip .av.hui{background:#c0508d}
+
+  /* ---------- 审计行 ---------- */
+  .audit-line{
+    display:flex; flex-wrap:wrap; gap:4px 14px; align-items:center;
+    padding:0 16px 11px; font-size:11.5px; color:var(--muted); line-height:1.6;
+  }
+  .audit-line b{font-weight:560; color:var(--text-2)}
+  .audit-line .sep{color:#d5dae2}
+  .audit-line .who-tag{
+    display:inline-block; padding:1px 7px; border-radius:20px; font-size:11px;
+    background:#eef2fb; color:#3a5bbf; margin-right:2px;
+  }
+  .audit-line .who-tag.hui{background:#fbeef5; color:#a83b74}
 </style>
 </head>
 <body>
@@ -226,6 +271,7 @@
       <div class="sub">数据截至 <b id="takenAt">—</b> ｜ <b id="monthCount">—</b> 个月记录 · <b id="accCount">—</b> 个科目</div>
     </div>
     <div class="hd-right">
+      <span class="user-chip" id="userChip" title="点击切换账号"></span>
       <select id="monthSel"></select>
       <button id="btnEdit" class="btn-primary">录入数据</button>
     </div>
@@ -279,6 +325,7 @@
 
       <div class="card table-card">
         <div class="card-hd"><h2>科目明细</h2><span class="hint" id="itemHint"></span></div>
+        <div class="audit-line" id="auditLine"></div>
         <table>
           <thead>
             <tr>
@@ -340,6 +387,21 @@
     <button class="btn-primary" id="lockBtn">解锁</button>
     <div class="lock-err" id="lockErr"></div>
     <div class="lock-foot">解密完全在浏览器内完成<br>AES-256-GCM · 服务端只存密文</div>
+  </div>
+</div>
+
+<!-- 登录：谁在用这个账本 -->
+<div class="lock" id="login">
+  <div class="lock-card">
+    <div class="lock-ico">👤</div>
+    <h2>选择登录者</h2>
+    <p>这个账本由两个人共同维护。<br>录入的数据会记上名字和时间。</p>
+    <div class="who-pick" id="whoPick"></div>
+    <input type="password" id="loginPass" placeholder="请输入密码" autocomplete="current-password">
+    <button class="btn-primary" id="loginBtn">进入</button>
+    <div class="lock-err" id="loginErr"></div>
+    <div class="lock-foot">账号固定在本机账本（<code>data.js</code>）里，密码只做本机校验<br>
+      两人权限相同：都能看全部数据、都能录入</div>
   </div>
 </div>
 
@@ -487,6 +549,7 @@ function renderView(month){
   renderTrend(snap.month);
   renderDonut(cur);
   renderTable(cur, old);
+  renderAudit(snap);
 
   if(snap.note){
     $("footNote").style.display = "block";
@@ -680,6 +743,33 @@ function renderTable(cur, old){
   $("itemHint").textContent = `${cur.rows.length} 项 ｜ 资产 ¥${fmtWan(cur.assets)} ｜ 负债 ¥${fmtWan(cur.liabs)}`;
 }
 
+/* 谁录的、谁改的、什么时候 */
+function renderAudit(snap){
+  const el = $("auditLine");
+  if(!el) return;
+  const seg = [];
+  const tag = id => `<span class="who-tag ${userCls(id)}">${userName(id)}</span>`;
+
+  if(snap.created_by){
+    seg.push(`<span>${tag(snap.created_by)} 录入
+      <span class="sep">·</span> ${fmtTime(snap.created_at)}</span>`);
+  }
+  const edited =
+    snap.updated_by && (snap.updated_by !== snap.created_by || snap.updated_at !== snap.created_at);
+  if(edited){
+    seg.push(`<span>${tag(snap.updated_by)} 末次修改
+      <span class="sep">·</span> ${fmtTime(snap.updated_at)}</span>`);
+  }
+  const n = (snap.edits || []).length;
+  if(n) seg.push(`<span class="pill pill-grey">改过 ${n} 次</span>`);
+
+  if(!seg.length){
+    seg.push(`<span>这条记录早于审计功能，没有留痕</span>`);
+  }
+  el.innerHTML = seg.join("");
+  el.style.display = "flex";
+}
+
 /* =====================================================================
    录入
    ===================================================================== */
@@ -808,10 +898,20 @@ function refreshTotals(){
 
 /* ============ 保存 ============ */
 function buildPayload(){
+  const now = nowStr();
+  const who = ME ? ME.id : "unknown";
+  const prev = D.snapshots.find(s => s.month === EDIT.month);
+
   const snap = {
     month: EDIT.month,
     taken_at: EDIT.taken_at || todayStr(),
     note: EDIT.note || "",
+    /* 首次录入定「创建」，之后每次保存只动「修改」；edits 留完整改动轨迹 */
+    created_by: (prev && prev.created_by) || who,
+    created_at: (prev && prev.created_at) || now,
+    updated_by: who,
+    updated_at: now,
+    edits: prev ? [...(prev.edits || []), { by: who, at: now }] : [],
     items: EDIT.items
       .filter(it=> it.market_value != null && it.market_value !== 0)
       .map(it=>({
@@ -823,10 +923,12 @@ function buildPayload(){
   };
   const rest = D.snapshots.filter(s=>s.month !== snap.month);
   return {
-    schema_version: D.schema_version || 2,
-    updated_at: new Date().toISOString().slice(0,19),
+    schema_version: 3,
+    updated_at: now,
     currency: D.currency || "CNY",
     source: D.source || "",
+    audit_note: D.audit_note,
+    users: D.users,                       // 账号必须原样带回去，否则下次打开登录层就没了
     accounts: D.accounts,
     instruments: D.instruments,
     snapshots: [...rest, snap].sort((a,b)=> a.month < b.month ? -1 : 1)
@@ -903,6 +1005,194 @@ $("btnReset").onclick = () => {
   renderEditor();
   toast(`已重置为 ${prev.month} 的数值`);
 };
+
+/* =====================================================================
+   登录与口令校验
+   · file:// 下没有 crypto.subtle（非安全上下文），所以自带一份 SHA-256，
+     保证「双击打开」和「线上」跑的是同一套校验
+   · 口令不存明文，只存「盐 + 迭代哈希」；迭代次数写在数据里，以后可调高
+   · 要说清楚：这个登录解决的是「谁录的」，不是「能不能看」。
+     两人都是超管，看到的数据完全一样；真正的门锁是线上那份的 AES 密码
+   ===================================================================== */
+
+/*@sha256-start*/
+const sha256bytes = (() => {
+  const K = new Uint32Array([
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+  ]);
+  const rotr = (x,n) => (x>>>n) | (x<<(32-n));
+  return function(bytes){
+    const len = bytes.length, blocks = Math.ceil((len + 9) / 64);
+    const buf = new Uint8Array(blocks * 64);
+    buf.set(bytes);
+    buf[len] = 0x80;
+    const dv = new DataView(buf.buffer);
+    dv.setUint32(blocks*64 - 8, Math.floor(len*8 / 4294967296));
+    dv.setUint32(blocks*64 - 4, (len*8) >>> 0);
+
+    const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+                               0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+    const W = new Uint32Array(64);
+    for(let b = 0; b < blocks; b++){
+      for(let i = 0; i < 16; i++) W[i] = dv.getUint32(b*64 + i*4);
+      for(let i = 16; i < 64; i++){
+        const s0 = rotr(W[i-15],7) ^ rotr(W[i-15],18) ^ (W[i-15]>>>3);
+        const s1 = rotr(W[i-2],17) ^ rotr(W[i-2],19) ^ (W[i-2]>>>10);
+        W[i] = (W[i-16] + s0 + W[i-7] + s1) >>> 0;
+      }
+      let a=H[0], bb=H[1], c=H[2], d=H[3], e=H[4], f=H[5], g=H[6], h=H[7];
+      for(let i = 0; i < 64; i++){
+        const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);
+        const ch = (e & f) ^ (~e & g);
+        const t1 = (h + S1 + ch + K[i] + W[i]) >>> 0;
+        const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);
+        const maj = (a & bb) ^ (a & c) ^ (bb & c);
+        const t2 = (S0 + maj) >>> 0;
+        h=g; g=f; f=e; e=(d+t1)>>>0; d=c; c=bb; bb=a; a=(t1+t2)>>>0;
+      }
+      H[0]=(H[0]+a)>>>0;  H[1]=(H[1]+bb)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;
+      H[4]=(H[4]+e)>>>0;  H[5]=(H[5]+f)>>>0;  H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;
+    }
+    const out = new Uint8Array(32);
+    for(let i = 0; i < 8; i++){
+      out[i*4]   = (H[i]>>>24) & 255;
+      out[i*4+1] = (H[i]>>>16) & 255;
+      out[i*4+2] = (H[i]>>>8)  & 255;
+      out[i*4+3] =  H[i]       & 255;
+    }
+    return out;
+  };
+})();
+/*@sha256-end*/
+
+const enc8      = s => new TextEncoder().encode(s);
+const hex2bytes = h => Uint8Array.from((h.match(/../g) || []), x => parseInt(x, 16));
+const bytes2hex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+
+/* 与 tools/setup_v3.mjs 里的 Node 实现逐行同构：
+     h0      = SHA256(salt ‖ pin)
+     h(i+1)  = SHA256(h(i) ‖ salt)
+   最终取 hex。两边算法必须完全一致，所以那边直接从这段源码里抠函数来跑 */
+function hashPin(pin, saltHex, iterations){
+  const salt = hex2bytes(saltHex);
+  const iter = iterations || 100000;
+  const cat = (a, b) => {
+    const o = new Uint8Array(a.length + b.length);
+    o.set(a); o.set(b, a.length);
+    return o;
+  };
+  let h = sha256bytes(cat(salt, enc8(pin)));
+  for(let i = 1; i < iter; i++) h = sha256bytes(cat(h, salt));
+  return bytes2hex(h);
+}
+/*@hash-end*/
+
+const SESSION_KEY = "finance.user.v1";
+let ME = null;        // 当前登录者 {id,name,short,role}
+let PICKED = null;    // 登录框里选中的 id
+
+const users     = () => (D && D.users) || [];
+const userOf    = id => users().find(x => x.id === id) || null;
+const userName  = id => { const u = userOf(id); return u ? u.name : (id || "—"); };
+const userShort = id => { const u = userOf(id); return u ? (u.short || u.name.slice(0,1)) : "?"; };
+const userCls   = id => id === "qujiahui" ? "hui" : "lin";
+
+function nowStr(){
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+const fmtTime = s => s ? String(s).replace("T", " ").slice(0, 16) : "—";
+
+function renderUserChip(){
+  const el = $("userChip");
+  if(!el) return;
+  if(!ME){ el.style.display = "none"; return; }
+  el.style.display = "inline-flex";
+  el.innerHTML =
+    `<span class="av ${userCls(ME.id)}">${ME.short || ME.name.slice(0,1)}</span>` +
+    `${ME.name}` +
+    (ME.role === "admin" ? `<span style="color:#a8b0be;font-size:11px">· 超管</span>` : "");
+}
+
+function renderWhoPick(){
+  const list = users();
+  if(!PICKED) PICKED = (list[0] && list[0].id) || null;
+  $("whoPick").innerHTML = list.map(u => `
+    <div class="who ${u.id === PICKED ? "on" : ""}" data-uid="${u.id}">
+      <div class="av ${userCls(u.id)}">${u.short || u.name.slice(0,1)}</div>
+      <div class="nm">${u.name}</div>
+      <div class="rl">${u.role === "admin" ? "超级管理员" : "成员"}</div>
+    </div>`).join("");
+  $("whoPick").querySelectorAll(".who").forEach(el => {
+    el.onclick = () => {
+      PICKED = el.dataset.uid;
+      renderWhoPick();
+      $("loginPass").focus();
+    };
+  });
+}
+
+function showLogin(){
+  if(!users().length) return;      // 账本里还没有账号（老数据），别把人卡在门外
+  $("login").classList.add("show");
+  renderWhoPick();
+  $("loginErr").textContent = "";
+  setTimeout(() => $("loginPass").focus(), 120);
+}
+
+function doLogin(){
+  const u = userOf(PICKED);
+  const pw = $("loginPass").value;
+  if(!u){ $("loginErr").textContent = "请先选择登录者"; return; }
+  if(!pw){ $("loginErr").textContent = "请输入密码"; return; }
+
+  const btn = $("loginBtn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>校验中…';
+
+  // 让「校验中」先画出来，再跑同步的哈希循环（手机上约一两百毫秒）
+  setTimeout(() => {
+    const ok = hashPin(pw, u.salt, u.iterations) === u.hash;
+    btn.disabled = false;
+    btn.textContent = "进入";
+
+    if(!ok){
+      $("loginErr").textContent = "密码不对";
+      $("loginPass").select();
+      return;
+    }
+    ME = u;
+    localStorage.setItem(SESSION_KEY, u.id);
+    $("login").classList.remove("show");
+    $("loginPass").value = "";
+    $("loginErr").textContent = "";
+    enterApp();
+    toast(`欢迎，${u.name}`, "ok");
+  }, 30);
+}
+
+function wireLogin(){
+  $("loginBtn").onclick = doLogin;
+  $("loginPass").onkeydown = e => { if(e.key === "Enter") doLogin(); };
+}
+
+function wireUserChip(){
+  const el = $("userChip");
+  if(!el) return;
+  el.onclick = () => {
+    if(!users().length) return;
+    if(!confirm(`当前登录：${ME ? ME.name : "未登录"}\n要切换账号吗？切换后需要重新输入密码。`)) return;
+    localStorage.removeItem(SESSION_KEY);
+    location.reload();            // 重载最干净：云端会走一遍缓存的解密钥匙，再回到登录层
+  };
+}
 
 /* ============ 数据装载 ============
    同一个页面要跑在两种环境里：
@@ -1013,6 +1303,13 @@ function fatal(msg){
      </div>`;
 }
 
+function enterApp(){
+  renderUserChip();
+  renderSelect();
+  if (D.snapshots.length) renderView(snapsDesc()[0].month);
+  if (DATA_MODE !== "enc" && new URLSearchParams(location.search).get("edit") === "1") enterEdit();
+}
+
 function start(data){
   D = data || window.FINANCE_DATA;
   reindex();
@@ -1025,9 +1322,15 @@ function start(data){
     document.body.classList.add("readonly");
   }
 
-  renderSelect();
-  if (D.snapshots.length) renderView(snapsDesc()[0].month);
-  if (DATA_MODE !== "enc" && new URLSearchParams(location.search).get("edit") === "1") enterEdit();
+  wireUserChip();
+  wireLogin();
+
+  // 账本里配了账号就必须先登录；没配（老数据 / 手动改坏）就直接进，不把人卡死
+  const cached = userOf(localStorage.getItem(SESSION_KEY));
+  if (users().length && !cached) { showLogin(); return; }
+
+  ME = cached || null;
+  enterApp();
 }
 
 (async function boot(){
