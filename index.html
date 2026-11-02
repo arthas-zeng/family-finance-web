@@ -405,8 +405,7 @@ td input.carried{color:var(--muted); background:#fcfcfd}
   <!-- ==================== 录入 ==================== -->
   <div id="editor" hidden>
     <div class="edit-bar">
-      <div class="bar-title">月度录入 <small id="editHint"></small>
-        <small class="enc-note" id="encNote" hidden>线上保存＝下载一份 data.js</small></div>
+      <div class="bar-title">月度录入 <small id="editHint"></small></div>
       <input type="month" id="editMonth" style="width:150px">
       <button id="btnReset" class="btn-xs">全部沿用上期</button>
       <button id="btnCancel" class="btn-xs">取消</button>
@@ -490,20 +489,23 @@ td input.carried{color:var(--muted); background:#fcfcfd}
 
 <div class="toast" id="toast"></div>
 
-<!-- 云端密文模式的解锁界面 -->
+<!-- 云模式登录：口令 + GitHub 令牌 -->
 <div class="lock" id="lock">
   <div class="lock-card">
     <div class="lock-ico">🔒</div>
     <h2>家庭财务看板</h2>
-    <p id="lockTip">先选你是谁，再输入密码。<br>密码在本机解密，不会发往任何地方。</p>
+    <p id="lockTip">先选你是谁，输入你的口令。</p>
     <div class="who-pick" id="lockWho"></div>
     <div id="lockPassRow">
-      <input type="password" id="lockPass" placeholder="请输入密码" autocomplete="current-password">
-      <label class="lock-mem"><input type="checkbox" id="lockMem" checked>在此浏览器记住</label>
+      <input type="password" id="lockPass" placeholder="你的口令" autocomplete="current-password">
     </div>
-    <button class="btn-primary" id="lockBtn">解锁</button>
+    <div id="lockTokRow">
+      <input type="password" id="lockTok" placeholder="GitHub 令牌（ghp_… 只需一次）" autocomplete="off">
+      <label class="lock-mem"><input type="checkbox" id="lockMem" checked>在这台设备记住（用口令加密）</label>
+    </div>
+    <button class="btn-primary" id="lockBtn">进入</button>
     <div class="lock-err" id="lockErr"></div>
-    <div class="lock-foot">解密完全在浏览器内完成<br>AES-256-GCM · 服务端只存密文</div>
+    <div class="lock-foot">账本存在你的私有仓 <code>family-finance</code><br>页面本身不含任何数据</div>
   </div>
 </div>
 
@@ -519,24 +521,6 @@ td input.carried{color:var(--muted); background:#fcfcfd}
     <div class="lock-err" id="loginErr"></div>
     <div class="lock-foot">账号固定在本机账本（<code>data.js</code>）里，密码只做本机校验<br>
       两人权限相同：都能看全部数据、都能录入</div>
-  </div>
-</div>
-
-<!-- 线上保存之后：文件下到哪、回电脑怎么落地 -->
-<div class="lock" id="expDone">
-  <div class="lock-card">
-    <div class="lock-ico">📄</div>
-    <h2>已生成一份 data.js</h2>
-    <p>网页拿不到你的文件夹，所以这里的「保存」＝下载。<br>
-      把它放回项目目录，再跑一条命令就上线了。</p>
-    <div class="exp-file" id="expFile"></div>
-    <ol class="exp-steps">
-      <li>把文件传到电脑（AirDrop、微信「文件传输助手」都行）</li>
-      <li>在 finance-dashboard 目录里执行</li>
-    </ol>
-    <div class="exp-cmd" id="expCmd"></div>
-    <button class="btn-primary" id="expOk">知道了</button>
-    <div class="lock-foot">这份文件是明文账本，含全部历史<br>导入完记得删掉手机上的副本</div>
   </div>
 </div>
 
@@ -1432,9 +1416,9 @@ async function save() {
   const text = serializeJS(payload);
   const targetMonth = EDIT.month;
 
-  /* 线上（密文模式）：写不了盘，改成下载一份明文 data.js，回电脑一条命令落地 */
-  if (DATA_MODE === "enc") {
-    exportPlain(payload, targetMonth, carryTail);
+  /* 云模式：直接写回私有仓的 data.json，没有下载、没有导入这一步 */
+  if (DATA_MODE === "cloud") {
+    await saveCloud(payload, targetMonth, carryTail);
     return;
   }
 
@@ -1473,27 +1457,37 @@ function downloadText(name, text){
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
-/* ============ 线上保存：下载一份明文 data.js，回电脑一条命令落地 ============
-   静态页面写不了盘。这里是「不加密」的直白做法：把整本账（含全部历史）
-   原样序列化成和本地一模一样的 data.js，下载到手机/电脑的下载目录。
-   文件名带月份和时间戳，绝不覆盖已有的 data.js —— 覆盖与否由你在电脑上决定。 */
-function exportPlain(payload, month, carryTail){
-  const d = new Date();
-  const pad = n => String(n).padStart(2, "0");
-  const stamp = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-  const fileName = `data-${month}-${stamp}.js`;
+/* ============ 云模式保存：一次 PUT 就是一次提交 ============
+   私有仓的 data.json 就是唯一真相。写回时必须带上读到的 sha，
+   对不上说明别人先改了 —— 这时不硬覆盖，先取最新版本比时间。 */
+async function saveCloud(payload, month, carryTail){
+  const btns = ["btnSave", "btnSave2"].map(id => document.getElementById(id)).filter(Boolean);
+  btns.forEach(b => { b.disabled = true; b.dataset.label = b.textContent; b.textContent = "保存中…"; });
 
-  downloadText(fileName, serializeJS(payload));
+  const msg = `${month} 盘点 · ${ME ? ME.name : "?"} · ${new Date().toLocaleString("zh-CN")}`;
+  try {
+    let sha;
+    try {
+      sha = await cloudPut(CLOUD_TOKEN, payload, msg, CLOUD_SHA);
+    } catch (e) {
+      if (!e.conflict) throw e;
+      const fresh = await cloudGet(CLOUD_TOKEN);
+      // 对方改得比我这份底稿新：拒绝覆盖，让人刷新
+      if ((fresh.data.updated_at || "") > (CLOUD_BASE || ""))
+        throw new Error("另一台设备刚改过账本，刷新页面再改，别把对方的改动盖掉");
+      sha = await cloudPut(CLOUD_TOKEN, payload, msg, fresh.sha);
+    }
 
-  // 面板上写清「文件叫什么、命令怎么敲」，不用回头问人
-  $("expFile").textContent = fileName;
-  $("expCmd").textContent  = `./import.sh ~/Downloads/${fileName}`;
-  $("expDone").classList.add("show");
-
-  // 本页也切到新状态，免得看着像没保存
-  D = payload; reindex();
-  exitEdit(); renderSelect(); renderView(month);
-  toast("已下载 " + fileName + carryTail, "warn");
+    CLOUD_SHA  = sha;
+    CLOUD_BASE = payload.updated_at || "";
+    D = payload; reindex();
+    exitEdit(); renderSelect(); renderView(month);
+    toast("已保存到私有仓" + carryTail, "ok");
+  } catch (e) {
+    toast("保存失败：" + e.message, "warn");
+  } finally {
+    btns.forEach(b => { b.disabled = false; if (b.dataset.label) b.textContent = b.dataset.label; });
+  }
 }
 
 /* ==================== 事件 ==================== */
@@ -1729,18 +1723,32 @@ function wireUserChip(){
     if(!users().length) return;
     if(!confirm(`当前登录：${ME ? ME.name : "未登录"}\n要切换账号吗？切换后需要重新输入密码。`)) return;
     localStorage.removeItem(SESSION_KEY);
-    location.reload();            // 重载最干净：云端会走一遍缓存的解密钥匙，再回到登录层
+    location.reload();            // 重载最干净：云模式会回到登录屏，重新解密令牌
   };
 }
 
 /* ============ 数据装载 ============
    同一个页面要跑在两种环境里：
    · 本机（file:// 或 127.0.0.1）→ data.js 明文，双击即开，无需密码
-   · 线上（https，GitHub Pages）→ data.enc.js 密文，输密码在浏览器内解密
-   模式不靠猜域名，而是看哪个数据文件真的加载成功了——这是事实判断，
-   局域网 IP 访问、端口转发这些情况都不会误判 */
-const KEY_STORE = "finance.key.v1";
-let DATA_MODE = null;          // "plain" | "enc"
+   · 线上（https，GitHub Pages）→ 账本存在私有仓的 data.json，页面直接调 GitHub 接口读写
+   模式不靠猜域名，而是看 data.js 到底加载成功了没有——这是事实判断，
+   局域网 IP 访问、端口转发这些情况都不会误判
+   —— 线上那份页面里没有任何账本数据，所以放在公开仓也没关系 */
+
+const CLOUD = {
+  repo:   "arthas-zeng/family-finance",
+  path:   "data.json",
+  branch: "main",
+  api:    "https://api.github.com/repos/arthas-zeng/family-finance/contents/data.json",
+};
+
+const TOK_STORE = "finance.tok.v1.";   // 每台设备 × 每个人一份，用口令加密
+const TOK_ITER  = 200000;
+
+let DATA_MODE   = null;                // "plain" | "cloud"
+let CLOUD_TOKEN = null;                // 只在内存里，页面一关就没
+let CLOUD_SHA   = null;                // 写回时要带，防止覆盖别人的改动
+let CLOUD_BASE  = "";                  // 读到的 updated_at，用来判断冲突时谁更新
 
 function loadScript(src){
   return new Promise(resolve => {
@@ -1753,6 +1761,14 @@ function loadScript(src){
 }
 
 const b64buf = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const bufB64 = u8 => {
+  let s = "", step = 0x8000;
+  for (let i = 0; i < u8.length; i += step)
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + step));
+  return btoa(s);
+};
+const utf8b64 = str => bufB64(new TextEncoder().encode(str));
+const b64utf8 = str => new TextDecoder().decode(b64buf(str.replace(/\s+/g, "")));
 
 async function deriveKey(pass, salt, iter){
   const base = await crypto.subtle.importKey(
@@ -1760,29 +1776,76 @@ async function deriveKey(pass, salt, iter){
   return crypto.subtle.deriveKey(
     { name:"PBKDF2", salt, iterations: iter, hash:"SHA-256" },
     base, { name:"AES-GCM", length:256 },
-    true,                          // extractable，为了「记住密码」能导出原始密钥
-    ["decrypt"]);
+    false, ["encrypt", "decrypt"]);
 }
 
-/* 密文结构：salt(16) + iv(12) + ciphertext + tag(16)
-   Web Crypto 的 AES-GCM 正好吃「ciphertext||tag」，所以 iv 之后整段直接丢进去 */
-async function decryptWith(key, blob){
-  const all  = b64buf(blob);
-  const iv   = all.subarray(16, 28);
-  const body = all.subarray(28);
-  const plain = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, body);
-  return JSON.parse(new TextDecoder().decode(plain));
+/* ---------- 令牌保险箱 ----------
+   令牌不能明文躺 localStorage：谁拿到这台设备就能读你的私有仓。
+   用口令派生密钥把它封起来，口令错就解不开——顺带成了口令校验。 */
+async function sealToken(pass, token){
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await deriveKey(pass, salt, TOK_ITER);
+  const ct   = new Uint8Array(await crypto.subtle.encrypt(
+    { name:"AES-GCM", iv }, key, new TextEncoder().encode(token)));
+  const all = new Uint8Array(16 + 12 + ct.length);
+  all.set(salt, 0); all.set(iv, 16); all.set(ct, 28);
+  return bufB64(all);
 }
 
-/* 锁屏阶段数据还没解密，拿不到账本里的账号名，所以这里只写死「单字 + 配色」。
-   解密成功后再按这个字去账本里认人；认不到就退回第一个，改名了也不至于进不去。
+async function openToken(pass, sealed){
+  try {
+    const all = b64buf(sealed);
+    const key = await deriveKey(pass, all.subarray(0, 16), TOK_ITER);
+    const pt  = await crypto.subtle.decrypt(
+      { name:"AES-GCM", iv: all.subarray(16, 28) }, key, all.subarray(28));
+    return new TextDecoder().decode(pt);
+  } catch { return null; }        // 口令不对
+}
+
+/* ---------- GitHub 当数据库 ---------- */
+const ghHeaders = token => ({
+  Authorization: "Bearer " + token,
+  Accept: "application/vnd.github+json",
+});
+
+async function cloudGet(token){
+  const r = await fetch(`${CLOUD.api}?ref=${encodeURIComponent(CLOUD.branch)}`,
+    { headers: ghHeaders(token), cache: "no-store" });
+  if (r.status === 401) throw new Error("令牌无效或已过期");
+  if (r.status === 404) throw new Error(`私有仓里找不到 ${CLOUD.path}`);
+  if (!r.ok) throw new Error("读取失败（HTTP " + r.status + "）");
+  const j = await r.json();
+  return { data: JSON.parse(b64utf8(j.content)), sha: j.sha };
+}
+
+async function cloudPut(token, payload, message, sha){
+  const body = {
+    message,
+    content: utf8b64(JSON.stringify(payload, null, 2)),
+    branch:  CLOUD.branch,
+  };
+  if (sha) body.sha = sha;
+
+  const r = await fetch(CLOUD.api, {
+    method: "PUT",
+    headers: { ...ghHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 409 || r.status === 422) { const e = new Error("CONFLICT"); e.conflict = true; throw e; }
+  if (r.status === 401 || r.status === 403) throw new Error("令牌没有写权限，或已过期");
+  if (!r.ok) throw new Error("写入失败（HTTP " + r.status + "）");
+  return (await r.json()).content.sha;
+}
+
+/* 登录阶段数据还没拉下来，拿不到账本里的账号名，所以这里只写死「单字 + 配色」。
+   拉到数据后再按这个字去账本里认人；认不到就退回第一个，改名了也不至于进不去。
    公开仓里多出来的信息就这两个汉字。 */
 const LOCK_WHO = [
   { short: "麟", hue: "lin" },
   { short: "慧", hue: "hui" },
 ];
 let LOCK_PICKED = localStorage.getItem(WHO_KEY) || null;
-let WHO_ONLY = false;          // 密钥还在这台设备上：只问「你是谁」，不再要密码
 
 function lockWhoList(){
   if (D && D.users && D.users.length){
@@ -1795,6 +1858,17 @@ function lockWhoList(){
     return all.sort((a, b) => rank(a.short) - rank(b.short));
   }
   return LOCK_WHO.map(w => ({ key: w.short, short: w.short, name: "", hue: w.hue }));
+}
+
+/* 这台设备记住过这个人的令牌，就不用再粘一次 */
+function lockHasToken(){
+  const list = lockWhoList();
+  const pick = list.find(w => w.key === LOCK_PICKED) || list[0];
+  return !!(pick && localStorage.getItem(TOK_STORE + pick.short));
+}
+
+function syncLockRows(){
+  $("lockTokRow").style.display = lockHasToken() ? "none" : "";
 }
 
 function renderLockWho(){
@@ -1813,101 +1887,82 @@ function renderLockWho(){
     el.onclick = () => {
       LOCK_PICKED = el.dataset.key;
       renderLockWho();
+      syncLockRows();
       $("lockErr").textContent = "";
-      if (WHO_ONLY) lockSubmit();          // 只有一个动作，点完直接进
-      else $("lockPass").focus();
+      $("lockPass").focus();
     };
   });
 }
 
 function showLock(opts){
   const o = (typeof opts === "string") ? { msg: opts } : (opts || {});
-  WHO_ONLY = !!o.whoOnly;
   $("lock").classList.add("show");
-  $("lockPassRow").style.display = WHO_ONLY ? "none" : "";
-  $("lockTip").innerHTML = WHO_ONLY
-    ? "密钥还留在这台设备上。<br>选一下你是谁就能进。"
-    : "先选你是谁，再输入密码。<br>密码在本机解密，不会发往任何地方。";
-  $("lockBtn").textContent = WHO_ONLY ? "进入" : "解锁";
   $("lockErr").textContent = o.msg || "";
   renderLockWho();
-  if (!WHO_ONLY) setTimeout(() => $("lockPass").focus(), 120);
+  syncLockRows();
+  setTimeout(() => $("lockPass").focus(), 120);
 }
 
 /* 按简称在账本里认人，认不到就退回第一个 */
 const findUserByShort = s =>
   users().find(u => (u.short || u.name.slice(0, 1)) === s) || users()[0] || null;
 
-async function tryCachedKey(){
-  const cached = localStorage.getItem(KEY_STORE);
-  if (!cached) return false;
-  try {
-    const key = await crypto.subtle.importKey(
-      "raw", b64buf(cached), { name:"AES-GCM", length:256 }, true, ["decrypt"]);
-    start(await decryptWith(key, window.FINANCE_ENC.blob));
-    return true;
-  } catch {
-    localStorage.removeItem(KEY_STORE);   // 密码换过了，旧钥匙作废
-    return false;
-  }
-}
-
 async function lockSubmit(){
-  const btn = $("lockBtn"), err = $("lockErr"), input = $("lockPass");
+  const btn = $("lockBtn"), err = $("lockErr");
+  const pass = $("lockPass").value.trim();
 
   const pick = lockWhoList().find(w => w.key === LOCK_PICKED);
   if (!pick) { err.textContent = "请先选择你是谁"; return; }
+  if (!pass) { err.textContent = "请输入口令"; return; }
 
-  // 钥匙已在本地：选完人就直接进
-  if (WHO_ONLY) {
-    const me = userOf(pick.key) || findUserByShort(pick.short);
-    if (!me) { err.textContent = "账本里没有这个人"; return; }
-    ME = me;
-    localStorage.setItem(SESSION_KEY, me.id);
-    localStorage.setItem(WHO_KEY, me.short || me.name.slice(0, 1));
-    $("lock").classList.remove("show");
-    enterApp();
-    toast(`欢迎，${me.name}`, "ok");
-    return;
-  }
-
-  const pass = input.value.trim();
-  if (!pass) { err.textContent = "请输入密码"; return; }
-
+  const short = pick.short;
   btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span>解密中…';
+  btn.innerHTML = '<span class="spin"></span>读取账本…';
   err.textContent = "";
 
   try {
-    const all  = b64buf(window.FINANCE_ENC.blob);
-    const salt = all.subarray(0, 16);
-    // PBKDF2 六十万次，手机上要一两秒，按钮上的转圈就是这个时间
-    const key  = await deriveKey(pass, salt, window.FINANCE_ENC.iter);
-    const data = await decryptWith(key, window.FINANCE_ENC.blob);
-
-    if ($("lockMem").checked) {
-      const raw = await crypto.subtle.exportKey("raw", key);
-      localStorage.setItem(KEY_STORE, btoa(String.fromCharCode(...new Uint8Array(raw))));
+    // ① 先拿到令牌：本地保险箱里解出来，或者这次粘一个
+    let token, sealed = localStorage.getItem(TOK_STORE + short);
+    if (sealed) {
+      token = await openToken(pass, sealed);
+      if (!token) throw new Error("口令不对");
     } else {
-      localStorage.removeItem(KEY_STORE);
+      token = ($("lockTok").value || "").trim();
+      if (!token) throw new Error("这台设备还没记住令牌，先粘一次");
+      if ($("lockMem").checked)
+        localStorage.setItem(TOK_STORE + short, await sealToken(pass, token));
     }
 
-    localStorage.setItem(WHO_KEY, pick.short);
-    btn.disabled = false;
-    btn.textContent = "解锁";
+    // ② 用它去私有仓取账本
+    const { data, sha } = await cloudGet(token);
+
+    // ③ 第一次（还没保险箱）顺手核一下口令，避免选错人也能进
+    const u = (data.users || []).find(x => x.id === pick.key);
+    if (u && !sealed && hashPin(pass, u.salt, u.iterations) !== u.hash)
+      throw new Error("口令不对");
+
+    CLOUD_TOKEN = token;
+    CLOUD_SHA   = sha;
+    CLOUD_BASE  = data.updated_at || "";
+
+    if (u) localStorage.setItem(SESSION_KEY, u.id);
+    localStorage.setItem(WHO_KEY, short);
     $("lock").classList.remove("show");
-    start(data, pick.short);          // 带上「谁在用」，省掉第二层登录
-  } catch {
-    err.textContent = "密码不对";
+    $("lockPass").value = ""; $("lockTok").value = "";
+    start(data, short);
+  } catch (e) {
+    err.textContent = e.message;
+    if (/口令/.test(e.message)) $("lockPass").select();
+  } finally {
     btn.disabled = false;
-    btn.textContent = "解锁";
-    input.select();
+    btn.textContent = "进入";
   }
 }
 
 function wireLock(){
   $("lockBtn").onclick = lockSubmit;
   $("lockPass").onkeydown = e => { if (e.key === "Enter") lockSubmit(); };
+  $("lockTok").onkeydown  = e => { if (e.key === "Enter") lockSubmit(); };
 }
 
 function fatal(msg){
@@ -1924,38 +1979,19 @@ function enterApp(){
   renderUserChip();
   renderSelect();
   if (D.snapshots.length) renderView(snapsDesc()[0].month);
-  if (DATA_MODE !== "enc" && new URLSearchParams(location.search).get("edit") === "1") enterEdit();
+  if (new URLSearchParams(location.search).get("edit") === "1") enterEdit();
 }
 
 function start(data, whoShort){
   D = data || window.FINANCE_DATA;
   reindex();
 
-  /* 密文模式是线上部署：能编辑，但静态页写不了文件，
-     所以「保存」改成下载一份明文 data.js，回电脑跑 ./import.sh 落地。
-     这里只打个标记，不把录入按钮藏掉——藏了就等于没这个功能，也没人知道为什么 */
-  if (DATA_MODE === "enc") {
-    document.body.classList.add("enc-mode");
-    // 按钮改个名字，别让人以为点了就写盘了
-    const note = document.getElementById("encNote");
-    if (note) note.hidden = false;
-    ["btnSave", "btnSave2"].forEach(id => {
-      const b = document.getElementById(id);
-      if (b) b.textContent = "保存并下载";
-    });
-  }
-
-  // 导出面板的「知道了」：只关面板，数据已经在页面上了
-  const expOk = document.getElementById("expOk");
-  if (expOk) expOk.onclick = () => $("expDone").classList.remove("show");
-
   wireUserChip();
   wireLogin();
 
-  /* 线上密文：解锁那一屏已经一起选过「你是谁」了，不再单独弹一层登录。
-     钥匙缓存着的时候也走同一个屏，只是不要密码 —— 每次打开都明确一次身份，
-     否则两个人共用一台设备时，第二个人会顶着第一个人的名字录数据 */
-  if (DATA_MODE === "enc") {
+  /* 云模式：登录那一屏已经选过「你是谁」了，不再弹第二层登录；
+     保存走 GitHub 接口直写，不需要任何下载/导入的动作 */
+  if (DATA_MODE === "cloud") {
     if (whoShort) {
       const me = findUserByShort(whoShort);
       ME = me;
@@ -1965,7 +2001,7 @@ function start(data, whoShort){
       return;
     }
     ME = null;
-    showLock({ whoOnly: true });
+    showLock();
     return;
   }
 
@@ -1985,20 +2021,14 @@ function start(data, whoShort){
     return;
   }
 
-  // ② 密文：线上部署走这条
-  if (await loadScript("data.enc.js") && window.FINANCE_ENC) {
-    DATA_MODE = "enc";
-    if (!window.crypto || !crypto.subtle) {
-      fatal("当前环境不允许浏览器内解密。请用 https 或 localhost 打开，<br>直接双击本地文件时请改用明文 data.js。");
-      return;
-    }
-    wireLock();
-    if (!(await tryCachedKey())) showLock();
+  // ② 云模式：页面在公开仓，账本在你自己的私有仓
+  DATA_MODE = "cloud";
+  if (!window.crypto || !crypto.subtle || !window.fetch) {
+    fatal("当前环境不允许浏览器内加密与联网请求。<br>请用 https 或 localhost 打开这个页面。");
     return;
   }
-
-  // ③ 两个都没有
-  fatal("请确认 data.js（本地明文）或 data.enc.js（线上密文）与页面在同一目录。");
+  wireLock();
+  showLock();
 })();
 
 </script>
