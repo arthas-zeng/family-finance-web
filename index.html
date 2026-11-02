@@ -1191,7 +1191,7 @@ function renderEditFixed() {
   $("editFixedBody").innerHTML = EDIT.fixed.map((f, i) => {
     const v = FIN.fixedValue(f, EDIT.month);
     return `<tr>
-      <td><input type="text" data-f="${i}" data-k="name" value="${esc(f.name)}" placeholder="东岸明珠 B3"></td>
+      <td><input type="text" data-f="${i}" data-k="name" value="${esc(f.name)}" placeholder="自住房 / 车牌号"></td>
       <td><select data-f="${i}" data-k="kind">
         ${[["house", "房产"], ["car", "车"], ["parking", "车位"], ["other", "其他"]]
           .map(([k, n]) => `<option value="${k}" ${f.kind === k ? "selected" : ""}>${n}</option>`).join("")}
