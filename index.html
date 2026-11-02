@@ -186,6 +186,12 @@ td input.carried{color:var(--muted); background:#fcfcfd}
   font-size:13px; font-weight:600; margin:0 auto 6px}
 .who .nm{font-size:13px; font-weight:560}
 .who .rl{font-size:10.5px; color:var(--muted); margin-top:1px}
+/* 锁屏里的选人：数据还没解密时卡片上只有头像字，所以让它自己撑住高度 */
+.lock .who{padding:15px 6px; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; min-height:74px}
+.lock .who .av{width:38px; height:38px; font-size:15px; margin-bottom:0}
+.lock .who .nm{margin-top:7px}
+.lock .who-pick{margin-bottom:16px}
 .spin{display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,.35);
   border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite; vertical-align:-2px; margin-right:6px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -479,9 +485,12 @@ td input.carried{color:var(--muted); background:#fcfcfd}
   <div class="lock-card">
     <div class="lock-ico">🔒</div>
     <h2>家庭财务看板</h2>
-    <p>数据已加密存放在这个页面里。<br>输入密码在本机解密，密码不会发往任何地方。</p>
-    <input type="password" id="lockPass" placeholder="请输入密码" autocomplete="current-password">
-    <label class="lock-mem"><input type="checkbox" id="lockMem" checked>在此浏览器记住</label>
+    <p id="lockTip">先选你是谁，再输入密码。<br>密码在本机解密，不会发往任何地方。</p>
+    <div class="who-pick" id="lockWho"></div>
+    <div id="lockPassRow">
+      <input type="password" id="lockPass" placeholder="请输入密码" autocomplete="current-password">
+      <label class="lock-mem"><input type="checkbox" id="lockMem" checked>在此浏览器记住</label>
+    </div>
     <button class="btn-primary" id="lockBtn">解锁</button>
     <div class="lock-err" id="lockErr"></div>
     <div class="lock-foot">解密完全在浏览器内完成<br>AES-256-GCM · 服务端只存密文</div>
@@ -1563,6 +1572,7 @@ function hashPin(pin, saltHex, iterations){
 /*@hash-end*/
 
 const SESSION_KEY = "finance.user.v1";
+const WHO_KEY     = "finance.who.v1";   // 上次选的人是哪个（只存简称，用于预选）
 let ME = null;        // 当前登录者 {id,name,short,role}
 let PICKED = null;    // 登录框里选中的 id
 
@@ -1590,11 +1600,11 @@ function renderUserChip(){
 }
 
 function renderWhoPick(){
-  const list = users();
-  if(!PICKED) PICKED = (list[0] && list[0].id) || null;
+  const list = lockWhoList();        // 与锁屏共用同一份顺序与样式
+  if(!PICKED) PICKED = (list[0] && list[0].key) || null;
   $("whoPick").innerHTML = list.map(u => `
-    <div class="who ${u.id === PICKED ? "on" : ""}" data-uid="${u.id}">
-      <div class="av ${userCls(u.id)}">${u.short || u.name.slice(0,1)}</div>
+    <div class="who ${u.key === PICKED ? "on" : ""}" data-uid="${u.key}">
+      <div class="av ${u.hue || "lin"}">${u.short}</div>
       <div class="nm">${u.name}</div>
       <div class="rl">${u.role === "admin" ? "超级管理员" : "成员"}</div>
     </div>`).join("");
@@ -1703,11 +1713,69 @@ async function decryptWith(key, blob){
   return JSON.parse(new TextDecoder().decode(plain));
 }
 
-function showLock(msg){
-  $("lock").classList.add("show");
-  if (msg) $("lockErr").textContent = msg;
-  setTimeout(() => $("lockPass").focus(), 120);
+/* 锁屏阶段数据还没解密，拿不到账本里的账号名，所以这里只写死「单字 + 配色」。
+   解密成功后再按这个字去账本里认人；认不到就退回第一个，改名了也不至于进不去。
+   公开仓里多出来的信息就这两个汉字。 */
+const LOCK_WHO = [
+  { short: "麟", hue: "lin" },
+  { short: "慧", hue: "hui" },
+];
+let LOCK_PICKED = localStorage.getItem(WHO_KEY) || null;
+let WHO_ONLY = false;          // 密钥还在这台设备上：只问「你是谁」，不再要密码
+
+function lockWhoList(){
+  if (D && D.users && D.users.length){
+    const all = D.users.map(u => ({
+      key: u.id, short: u.short || u.name.slice(0, 1),
+      name: u.name, hue: u.hue, role: u.role,
+    }));
+    // 顺序固定按 LOCK_WHO 来，否则第一次「麟 慧」第二次「慧 麟」，手感会被打乱
+    const rank = s => { const i = LOCK_WHO.findIndex(w => w.short === s); return i < 0 ? 99 : i; };
+    return all.sort((a, b) => rank(a.short) - rank(b.short));
+  }
+  return LOCK_WHO.map(w => ({ key: w.short, short: w.short, name: "", hue: w.hue }));
 }
+
+function renderLockWho(){
+  const list = lockWhoList();
+  // 上次选的人优先（按简称对上），没有就第一个
+  const hit = list.find(w => w.short === LOCK_PICKED) || list.find(w => w.key === LOCK_PICKED);
+  LOCK_PICKED = hit ? hit.key : (list[0] ? list[0].key : null);
+
+  $("lockWho").innerHTML = list.map(w => `
+    <div class="who ${w.key === LOCK_PICKED ? "on" : ""}" data-key="${w.key}">
+      <div class="av ${w.hue || "lin"}">${w.short}</div>
+      ${w.name ? `<div class="nm">${w.name}</div>` : ""}
+      ${w.role ? `<div class="rl">${w.role === "admin" ? "超级管理员" : "成员"}</div>` : ""}
+    </div>`).join("");
+  $("lockWho").querySelectorAll(".who").forEach(el => {
+    el.onclick = () => {
+      LOCK_PICKED = el.dataset.key;
+      renderLockWho();
+      $("lockErr").textContent = "";
+      if (WHO_ONLY) lockSubmit();          // 只有一个动作，点完直接进
+      else $("lockPass").focus();
+    };
+  });
+}
+
+function showLock(opts){
+  const o = (typeof opts === "string") ? { msg: opts } : (opts || {});
+  WHO_ONLY = !!o.whoOnly;
+  $("lock").classList.add("show");
+  $("lockPassRow").style.display = WHO_ONLY ? "none" : "";
+  $("lockTip").innerHTML = WHO_ONLY
+    ? "密钥还留在这台设备上。<br>选一下你是谁就能进。"
+    : "先选你是谁，再输入密码。<br>密码在本机解密，不会发往任何地方。";
+  $("lockBtn").textContent = WHO_ONLY ? "进入" : "解锁";
+  $("lockErr").textContent = o.msg || "";
+  renderLockWho();
+  if (!WHO_ONLY) setTimeout(() => $("lockPass").focus(), 120);
+}
+
+/* 按简称在账本里认人，认不到就退回第一个 */
+const findUserByShort = s =>
+  users().find(u => (u.short || u.name.slice(0, 1)) === s) || users()[0] || null;
 
 async function tryCachedKey(){
   const cached = localStorage.getItem(KEY_STORE);
@@ -1723,42 +1791,62 @@ async function tryCachedKey(){
   }
 }
 
-function wireLock(){
-  const input = $("lockPass"), btn = $("lockBtn"), err = $("lockErr");
-  const submit = async () => {
-    const pass = input.value.trim();
-    if (!pass) { err.textContent = "请输入密码"; return; }
+async function lockSubmit(){
+  const btn = $("lockBtn"), err = $("lockErr"), input = $("lockPass");
 
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spin"></span>解密中…';
-    err.textContent = "";
+  const pick = lockWhoList().find(w => w.key === LOCK_PICKED);
+  if (!pick) { err.textContent = "请先选择你是谁"; return; }
 
-    try {
-      const all  = b64buf(window.FINANCE_ENC.blob);
-      const salt = all.subarray(0, 16);
-      // PBKDF2 六十万次，手机上要一两秒，按钮上的转圈就是这个时间
-      const key  = await deriveKey(pass, salt, window.FINANCE_ENC.iter);
-      const data = await decryptWith(key, window.FINANCE_ENC.blob);
+  // 钥匙已在本地：选完人就直接进
+  if (WHO_ONLY) {
+    const me = userOf(pick.key) || findUserByShort(pick.short);
+    if (!me) { err.textContent = "账本里没有这个人"; return; }
+    ME = me;
+    localStorage.setItem(SESSION_KEY, me.id);
+    localStorage.setItem(WHO_KEY, me.short || me.name.slice(0, 1));
+    $("lock").classList.remove("show");
+    enterApp();
+    toast(`欢迎，${me.name}`, "ok");
+    return;
+  }
 
-      if ($("lockMem").checked) {
-        const raw = await crypto.subtle.exportKey("raw", key);
-        localStorage.setItem(KEY_STORE, btoa(String.fromCharCode(...new Uint8Array(raw))));
-      } else {
-        localStorage.removeItem(KEY_STORE);
-      }
+  const pass = input.value.trim();
+  if (!pass) { err.textContent = "请输入密码"; return; }
 
-      $("lock").classList.remove("show");
-      start(data);
-    } catch {
-      err.textContent = "密码不对";
-      btn.disabled = false;
-      btn.textContent = "解锁";
-      input.select();
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>解密中…';
+  err.textContent = "";
+
+  try {
+    const all  = b64buf(window.FINANCE_ENC.blob);
+    const salt = all.subarray(0, 16);
+    // PBKDF2 六十万次，手机上要一两秒，按钮上的转圈就是这个时间
+    const key  = await deriveKey(pass, salt, window.FINANCE_ENC.iter);
+    const data = await decryptWith(key, window.FINANCE_ENC.blob);
+
+    if ($("lockMem").checked) {
+      const raw = await crypto.subtle.exportKey("raw", key);
+      localStorage.setItem(KEY_STORE, btoa(String.fromCharCode(...new Uint8Array(raw))));
+    } else {
+      localStorage.removeItem(KEY_STORE);
     }
-  };
 
-  btn.onclick = submit;
-  input.onkeydown = e => { if (e.key === "Enter") submit(); };
+    localStorage.setItem(WHO_KEY, pick.short);
+    btn.disabled = false;
+    btn.textContent = "解锁";
+    $("lock").classList.remove("show");
+    start(data, pick.short);          // 带上「谁在用」，省掉第二层登录
+  } catch {
+    err.textContent = "密码不对";
+    btn.disabled = false;
+    btn.textContent = "解锁";
+    input.select();
+  }
+}
+
+function wireLock(){
+  $("lockBtn").onclick = lockSubmit;
+  $("lockPass").onkeydown = e => { if (e.key === "Enter") lockSubmit(); };
 }
 
 function fatal(msg){
@@ -1778,7 +1866,7 @@ function enterApp(){
   if (DATA_MODE !== "enc" && new URLSearchParams(location.search).get("edit") === "1") enterEdit();
 }
 
-function start(data){
+function start(data, whoShort){
   D = data || window.FINANCE_DATA;
   reindex();
 
@@ -1793,7 +1881,24 @@ function start(data){
   wireUserChip();
   wireLogin();
 
-  // 账本里配了账号就必须先登录；没配（老数据 / 手动改坏）就直接进，不把人卡死
+  /* 线上密文：解锁那一屏已经一起选过「你是谁」了，不再单独弹一层登录。
+     钥匙缓存着的时候也走同一个屏，只是不要密码 —— 每次打开都明确一次身份，
+     否则两个人共用一台设备时，第二个人会顶着第一个人的名字录数据 */
+  if (DATA_MODE === "enc") {
+    if (whoShort) {
+      const me = findUserByShort(whoShort);
+      ME = me;
+      if (me) localStorage.setItem(SESSION_KEY, me.id);
+      enterApp();
+      if (me) toast(`欢迎，${me.name}`, "ok");
+      return;
+    }
+    ME = null;
+    showLock({ whoOnly: true });
+    return;
+  }
+
+  // 本地明文：仍走「选人 + 个人密码」，账本里配了账号就必须先登录
   const cached = userOf(localStorage.getItem(SESSION_KEY));
   if (users().length && !cached) { showLogin(); return; }
 
