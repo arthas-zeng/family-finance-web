@@ -1102,7 +1102,7 @@ const users     = () => (D && D.users) || [];
 const userOf    = id => users().find(x => x.id === id) || null;
 const userName  = id => { const u = userOf(id); return u ? u.name : (id || "—"); };
 const userShort = id => { const u = userOf(id); return u ? (u.short || u.name.slice(0,1)) : "?"; };
-const userCls   = id => id === "qujiahui" ? "hui" : "lin";
+const userCls   = id => { const u = userOf(id); return (u && u.hue) || "lin"; };
 
 function nowStr(){
   const d = new Date(), p = n => String(n).padStart(2, "0");
