@@ -500,6 +500,9 @@ td input.carried{color:var(--muted); background:#fcfcfd}
         target="_blank" rel="noopener">去生成</a></div>
       <label class="lock-mem"><input type="checkbox" id="lockMem" checked>在这台设备记住（用口令加密）</label>
     </div>
+    <div class="lock-help" id="lockSwapRow" style="display:none">
+      这台设备已记住令牌 · <a href="#" id="lockSwap">换一个</a>
+    </div>
     <button class="btn-primary" id="lockBtn">进入</button>
     <div class="lock-err" id="lockErr"></div>
     <div class="lock-foot">账本存在你的私有仓 <code>family-finance</code><br>页面本身不含任何数据</div>
@@ -1865,7 +1868,21 @@ function lockHasToken(){
 }
 
 function syncLockRows(){
-  $("lockTokRow").style.display = lockHasToken() ? "none" : "";
+  const has = lockHasToken();
+  $("lockTokRow").style.display  = has ? "none" : "";
+  $("lockSwapRow").style.display = has ? "" : "none";
+}
+
+/* 换令牌：把这台设备封存的旧令牌扔掉，露出输入框。
+   没有这个口子的话，令牌一旦存错（比如授权给了别的仓库）就再也粘不进新的，
+   页面只会一直报「私有仓里找不到 data.json」，人还找不到地方改。 */
+function swapToken(){
+  const list = lockWhoList();
+  const pick = list.find(w => w.key === LOCK_PICKED) || list[0];
+  if (pick) localStorage.removeItem(TOK_STORE + pick.short);
+  $("lockErr").textContent = "";
+  syncLockRows();
+  $("lockTok").focus();
 }
 
 function renderLockWho(){
@@ -1918,16 +1935,22 @@ async function lockSubmit(){
   err.textContent = "";
 
   try {
-    // ① 先拿到令牌：本地保险箱里解出来，或者这次粘一个
+    // ① 先拿到令牌：输入框里粘了就优先用它（覆盖这台设备记住的旧令牌），
+    //    输入框空着才去本地保险箱里解
     let token, sealed = localStorage.getItem(TOK_STORE + short);
-    if (sealed) {
+    const typed = ($("lockTok").value || "").trim();
+    if (typed) {
+      token  = typed;
+      sealed = null;                                  // 新令牌还没核过口令，下面要核
+      if ($("lockMem").checked)
+        localStorage.setItem(TOK_STORE + short, await sealToken(pass, token));
+      else
+        localStorage.removeItem(TOK_STORE + short);
+    } else if (sealed) {
       token = await openToken(pass, sealed);
       if (!token) throw new Error("口令不对");
     } else {
-      token = ($("lockTok").value || "").trim();
-      if (!token) throw new Error("这台设备还没记住令牌，先粘一次");
-      if ($("lockMem").checked)
-        localStorage.setItem(TOK_STORE + short, await sealToken(pass, token));
+      throw new Error("这台设备还没记住令牌，先粘一次");
     }
 
     // ② 用它去私有仓取账本
@@ -1950,6 +1973,13 @@ async function lockSubmit(){
   } catch (e) {
     err.textContent = e.message;
     if (/口令/.test(e.message)) $("lockPass").select();
+    /* 读不到仓库，九成是令牌授权给了别的仓库或权限没开。
+       这时候把输入框露出来，让人能就地换一把，别卡在「找不到」上没处下手。 */
+    if (/找不到|读取失败|令牌/.test(e.message)) {
+      $("lockSwapRow").style.display = "";
+      $("lockTokRow").style.display  = "";
+      $("lockTok").focus();
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = "进入";
@@ -1960,6 +1990,7 @@ function wireLock(){
   $("lockBtn").onclick = lockSubmit;
   $("lockPass").onkeydown = e => { if (e.key === "Enter") lockSubmit(); };
   $("lockTok").onkeydown  = e => { if (e.key === "Enter") lockSubmit(); };
+  $("lockSwap").onclick   = e => { e.preventDefault(); swapToken(); };
 }
 
 function fatal(msg){
