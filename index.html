@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家庭财务看板</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#fff; --line:#e7e9ee; --line-soft:#f0f2f5;
+    --text:#15171c; --text-2:#4a5261; --muted:#8b93a3;
+    --up:#d92b2b; --down:#0e9f6e; --accent:#2b5cff;
+    --shadow:0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+    --radius:14px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px; line-height:1.5;
+    -webkit-font-smoothing:antialiased; padding:26px 24px 60px;
+  }
+  .wrap{max-width:1200px; margin:0 auto}
+  .num{font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
+
+  header{display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:14px}
+  h1{font-size:21px; font-weight:650; letter-spacing:-.2px}
+  .sub{color:var(--muted); font-size:12.5px; margin-top:5px}
+  .sub b{color:var(--text-2); font-weight:600}
+  .hd-right{display:flex; gap:9px; align-items:center; flex-wrap:wrap}
+  select,button{font:inherit; font-size:13px}
+  select{
+    padding:7px 30px 7px 12px; border:1px solid var(--line); border-radius:9px;
+    background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' stroke='%238b93a3' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+    appearance:none; color:var(--text); cursor:pointer;
+  }
+  button{padding:7px 15px; border-radius:9px; border:1px solid var(--line); background:var(--card);
+    color:var(--text); cursor:pointer; transition:all .15s; font-weight:520}
+  button:hover{border-color:#cfd4de; background:#fafbfc}
+  .btn-primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .btn-primary:hover{background:#1f4de8; border-color:#1f4de8}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow)}
+
+  /* KPI */
+  .kpi{display:grid; grid-template-columns:1.5fr 1fr 1fr; gap:14px; margin-bottom:14px}
+  .kpi .card{padding:19px 22px}
+  .kpi .label{font-size:12.5px; color:var(--muted); margin-bottom:8px}
+  .kpi .big{font-size:30px; font-weight:660; letter-spacing:-.8px; line-height:1.15}
+  .kpi .big .cur{font-size:16px; font-weight:500; color:var(--text-2); margin-right:3px; letter-spacing:0}
+  .kpi .foot{margin-top:8px; font-size:12.5px; color:var(--muted); display:flex; gap:8px; align-items:baseline; flex-wrap:wrap}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .pill{display:inline-block; padding:1.5px 7px; border-radius:6px; font-size:10.5px; font-weight:600}
+  .pill-grey{background:#f1f3f7; color:#7b8494}
+
+  .card-hd{padding:15px 20px 10px; display:flex; align-items:center; justify-content:space-between; gap:12px}
+  .card-hd h2{font-size:14px; font-weight:620}
+  .card-hd .hint{font-size:11.5px; color:var(--muted)}
+
+  /* 曲线 */
+  .chart-card{margin-bottom:14px; overflow:hidden}
+  .chart-box{padding:4px 12px 6px}
+  #trendSvg{width:100%; height:auto; display:block; overflow:visible}
+  .chart-foot{display:flex; gap:22px; flex-wrap:wrap; padding:2px 20px 15px; font-size:11.5px; color:var(--muted)}
+  .chart-foot b{color:var(--text-2); font-weight:600}
+
+  /* 主体两栏 */
+  .main{display:grid; grid-template-columns:392px 1fr; gap:14px; align-items:start}
+  /* 网格项默认 min-width:auto，表格内容会把整列顶宽、把页面撑出横向滚动。
+     显式归零，让内容在该收缩的地方老实收缩 */
+  .main > *, .kpi > *{min-width:0}
+  .donut-box{padding:2px 18px 18px; display:flex; flex-direction:column; gap:14px}
+  .donut{position:relative; align-self:center}
+  .donut-center{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none}
+  .donut-center .t{font-size:10.5px; color:var(--muted)}
+  .donut-center .v{font-size:17px; font-weight:650; margin-top:1px}
+  .legend{display:flex; flex-direction:column; gap:9px}
+  .lg{display:flex; align-items:center; gap:8px; font-size:12.5px}
+  .lg .dot{width:8px; height:8px; border-radius:2.5px; flex:0 0 auto}
+  .lg .name{flex:1; color:var(--text-2)}
+  .lg .amt{font-weight:600; font-size:12.5px}
+  .lg .pct{color:var(--muted); font-size:11.5px; width:44px; text-align:right}
+
+  /* 表格 */
+  .table-card{overflow:hidden}
+  table{width:100%; border-collapse:collapse; font-size:12.8px; table-layout:auto}
+  thead th{text-align:right; font-weight:560; font-size:11.5px; color:var(--muted);
+    padding:9px 12px; border-bottom:1px solid var(--line); background:#fafbfc; white-space:nowrap}
+  thead th:first-child{text-align:left; padding-left:20px}
+  thead th:last-child{padding-right:20px}
+  tbody td{padding:10px 12px; text-align:right; border-bottom:1px solid var(--line-soft)}
+  tbody td:first-child{text-align:left; padding-left:20px}
+  tbody td:last-child{padding-right:20px}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#fbfcfd}
+  .nm-cell{display:flex; flex-direction:column; gap:1px}
+  .nm-cell .n{font-weight:560}
+  .nm-cell .m{font-size:10.5px; color:var(--muted)}
+  .own{display:inline-block; padding:1px 6px; border-radius:5px; font-size:10px; font-weight:600;
+    background:#eef1f6; color:#6b7484}
+  .own.hui{background:#fdf0f4; color:#b3557a}
+  .own.lin{background:#eef3fe; color:#3f5fa8}
+  .liab-tag{display:inline-block; padding:1px 5px; border-radius:4px; font-size:9.5px; background:#fdeeee; color:#c0504d; margin-left:5px}
+
+  .foot-note{margin-top:14px; padding:12px 18px; border-radius:11px;
+    background:#fffdf3; border:1px solid #f5e9c8; color:#7a6a35; font-size:12.3px; line-height:1.65}
+  .foot-note b{color:#5c4f22}
+  .meta-bar{display:flex; gap:18px; flex-wrap:wrap; margin-top:14px; font-size:11.5px; color:var(--muted)}
+  .meta-bar code{background:#eef0f4; padding:1px 5px; border-radius:4px; font-size:11px}
+
+  /* ============ 录入 ============ */
+  #editor{display:none}
+  body.editing #viewer{display:none}
+  body.editing #editor{display:block}
+  .edit-bar{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#eef2ff; border:1px solid #dbe3ff; border-radius:12px; padding:12px 16px; margin-bottom:14px}
+  .edit-bar .bar-title{font-weight:620; font-size:13.5px; color:#24408e; margin-right:auto}
+  .edit-bar .bar-title small{font-weight:400; color:#5c6f9e; margin-left:8px; font-size:11.5px}
+  .edit-bar input[type=month]{font:inherit; font-size:13px; padding:6px 10px; border:1px solid #cfd8f0;
+    border-radius:8px; background:#fff; color:var(--text)}
+  .edit-bar button{background:#fff; border-color:#cfd8f0; color:#24408e}
+  .edit-bar button:hover{background:#f7f9ff}
+  .edit-bar .btn-primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .ei{width:100%; font:inherit; font-size:12.5px; text-align:right; padding:5px 8px;
+    border:1px solid #dfe3ea; border-radius:7px; background:#fff; color:var(--text);
+    font-variant-numeric:tabular-nums; transition:border-color .12s, box-shadow .12s}
+  .ei:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(43,92,255,.11)}
+  .ei::-webkit-outer-spin-button,.ei::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  .prev-val{color:var(--muted); font-size:12px}
+  .note-row{padding:12px 20px 0}
+  .note-input{width:100%; font:inherit; font-size:12.5px; padding:8px 11px; color:var(--text);
+    border:1px solid #dfe3ea; border-radius:8px; background:#fff}
+  .note-input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(43,92,255,.11)}
+  .edit-sum{display:flex; gap:26px; flex-wrap:wrap; padding:13px 20px; background:#fafbfc;
+    border-top:1px solid var(--line); font-size:12.5px; align-items:baseline}
+  .edit-sum .k{color:var(--muted); margin-right:6px; font-size:11.5px}
+  .edit-sum .v{font-weight:650; font-size:15px; font-variant-numeric:tabular-nums}
+  .mode-note{font-size:11.5px; color:var(--muted); margin-top:10px; line-height:1.7}
+  .mode-note code{background:#eef0f4; padding:1px 5px; border-radius:4px; font-size:11px}
+  .toast{position:fixed; left:50%; bottom:34px; transform:translateX(-50%) translateY(14px);
+    background:#1d2330; color:#fff; padding:11px 20px; border-radius:10px; font-size:13px;
+    opacity:0; transition:all .25s; pointer-events:none; box-shadow:0 8px 24px rgba(16,24,40,.22);
+    max-width:min(600px,90vw); line-height:1.5; z-index:99}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+  .toast.ok{background:#0d7a56} .toast.warn{background:#8a5b00}
+
+  @media (max-width:960px){
+    .kpi{grid-template-columns:1fr}
+    .main{grid-template-columns:1fr}
+  }
+
+  /* 手机：联网查看的主要场景，单独调一版 */
+  @media (max-width:760px){
+    body{padding:16px 12px 44px}
+    h1{font-size:18px}
+    .sub{font-size:11.5px}
+    .hd-right{width:100%}
+    .hd-right select{flex:1}
+    .kpi .card{padding:15px 16px}
+    .kpi .big{font-size:25px; letter-spacing:-.5px}
+    .card-hd{padding:13px 15px 8px}
+    .card-hd .hint{display:none}
+    .chart-box{padding:2px 4px 4px}
+    .chart-foot{padding:2px 14px 13px; gap:10px 16px; font-size:11px}
+    .donut-box{padding:2px 14px 16px}
+    .legend .lg{font-size:12px}
+    .foot-note{font-size:11.8px; margin-top:12px}
+    /* 六列在手机上装不下，归属和上月先让位，
+       留下真正会看的「本月 / 变化 / 占比」 */
+    thead th:nth-child(2), tbody td:nth-child(2),
+    thead th:nth-child(4), tbody td:nth-child(4){display:none}
+    table{font-size:11.8px}
+    thead th{padding:8px 7px; font-size:11px}
+    tbody td{padding:9px 7px}
+    thead th:first-child, tbody td:first-child{padding-left:15px}
+    thead th:last-child,  tbody td:last-child{padding-right:15px}
+    .nm-cell .m{font-size:10px}
+  }
+
+  /* ===== 解锁遮罩（云端密文模式）===== */
+  .lock{
+    position:fixed; inset:0; z-index:200; display:none;
+    align-items:center; justify-content:center; padding:24px;
+    background:linear-gradient(160deg,#eef1f7 0%,#f7f8fa 55%,#eef4f3 100%);
+  }
+  .lock.show{display:flex}
+  .lock-card{
+    width:100%; max-width:370px; background:var(--card); border:1px solid var(--line);
+    border-radius:18px; padding:30px 28px 26px; text-align:center;
+    box-shadow:0 12px 40px rgba(16,24,40,.10);
+  }
+  .lock-ico{
+    width:46px; height:46px; margin:0 auto 16px; border-radius:13px;
+    background:linear-gradient(135deg,#2b5cff,#7c5cff); display:flex; align-items:center;
+    justify-content:center; color:#fff; font-size:21px;
+  }
+  .lock-card h2{font-size:16.5px; font-weight:640; margin-bottom:7px}
+  .lock-card p{font-size:12.5px; color:var(--muted); line-height:1.65; margin-bottom:18px}
+  .lock-card input{
+    width:100%; padding:11px 13px; border:1px solid var(--line); border-radius:10px;
+    font:inherit; font-size:14px; text-align:center; letter-spacing:1px; margin-bottom:11px;
+  }
+  .lock-card input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(43,92,255,.10)}
+  .lock-card button{width:100%; padding:11px; border-radius:10px; font-size:14px; font-weight:560}
+  .lock-err{
+    font-size:12px; color:var(--up); min-height:17px; margin-top:10px;
+  }
+  .lock-foot{font-size:11px; color:#a8b0be; margin-top:16px; line-height:1.6}
+  .lock-mem{
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    font-size:12px; color:var(--text-2); margin-bottom:14px; cursor:pointer; user-select:none;
+  }
+  .lock-mem input{width:14px; height:14px; accent-color:var(--accent); cursor:pointer}
+  .spin{
+    display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.35);
+    border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite;
+    vertical-align:-2px; margin-right:6px;
+  }
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>家庭财务看板</h1>
+      <div class="sub">数据截至 <b id="takenAt">—</b> ｜ <b id="monthCount">—</b> 个月记录 · <b id="accCount">—</b> 个科目</div>
+    </div>
+    <div class="hd-right">
+      <select id="monthSel"></select>
+      <button id="btnEdit" class="btn-primary">录入数据</button>
+    </div>
+  </header>
+
+  <!-- ================= 查看 ================= -->
+  <div id="viewer">
+    <section class="kpi">
+      <div class="card">
+        <div class="label">家庭净资产</div>
+        <div class="big num"><span class="cur">¥</span><span id="netWorth">—</span></div>
+        <div class="foot"><span id="momText">—</span><span class="pill pill-grey" id="momPill">—</span></div>
+      </div>
+      <div class="card">
+        <div class="label">较上一记录</div>
+        <div class="big num" id="deltaBig">—</div>
+        <div class="foot"><span id="deltaFoot">—</span></div>
+      </div>
+      <div class="card">
+        <div class="label">权益仓位</div>
+        <div class="big num" id="equityRatio">—</div>
+        <div class="foot"><span id="equityNote">—</span></div>
+      </div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-hd">
+        <h2>净资产走势</h2>
+        <span class="hint" id="trendHint"></span>
+      </div>
+      <div class="chart-box">
+        <svg id="trendSvg" viewBox="0 0 1160 250" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="chart-foot" id="chartFoot"></div>
+    </section>
+
+    <section class="main">
+      <div class="card">
+        <div class="card-hd"><h2>资产配置</h2><span class="hint">按资产大类</span></div>
+        <div class="donut-box">
+          <div class="donut">
+            <svg viewBox="0 0 200 200" width="200" height="200" id="donutSvg"></svg>
+            <div class="donut-center">
+              <div class="t">总资产</div>
+              <div class="v num" id="donutTotal">—</div>
+            </div>
+          </div>
+          <div class="legend" id="legend"></div>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <div class="card-hd"><h2>科目明细</h2><span class="hint" id="itemHint"></span></div>
+        <table>
+          <thead>
+            <tr>
+              <th>科目</th><th>归属</th><th>本月</th><th>上月</th><th>变化</th><th>占比</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="foot-note" id="footNote" style="display:none"></div>
+
+    <div class="meta-bar">
+      <span>数据文件：<code>data.js</code></span>
+      <span>本地静态页，无任何网络请求</span>
+      <span>口径：净资产 = 资产合计 − 负债合计</span>
+    </div>
+  </div>
+
+  <!-- ================= 录入 ================= -->
+  <div id="editor">
+    <div class="edit-bar">
+      <div class="bar-title">录入月度快照 <small id="editHint"></small></div>
+      <input type="month" id="editMonth">
+      <button id="btnReset" title="把本月所有值重置为上一期">重置为上期</button>
+      <button id="btnCancel">取消</button>
+      <button id="btnSave" class="btn-primary">保存</button>
+    </div>
+
+    <div class="card table-card">
+      <table>
+        <thead>
+          <tr><th>科目</th><th>归属</th><th>上期</th><th style="width:190px">本期</th><th>变化</th></tr>
+        </thead>
+        <tbody id="editBody"></tbody>
+      </table>
+      <div class="note-row">
+        <input id="editNote" class="note-input" type="text"
+          placeholder="本月备注（可选）：比如大额支出、年终奖、行情异动…">
+      </div>
+      <div class="edit-sum" id="editSum"></div>
+    </div>
+
+    <div class="mode-note" id="modeNote"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 云端密文模式的解锁界面 -->
+<div class="lock" id="lock">
+  <div class="lock-card">
+    <div class="lock-ico">🔒</div>
+    <h2>家庭财务看板</h2>
+    <p>数据已加密存放在这个页面里。<br>输入密码在本机解密，密码不会发往任何地方。</p>
+    <input type="password" id="lockPass" placeholder="请输入密码" autocomplete="current-password">
+    <label class="lock-mem"><input type="checkbox" id="lockMem" checked>在此浏览器记住</label>
+    <button class="btn-primary" id="lockBtn">解锁</button>
+    <div class="lock-err" id="lockErr"></div>
+    <div class="lock-foot">解密完全在浏览器内完成<br>AES-256-GCM · 服务端只存密文</div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   家庭财务看板
+   数据模型：账户(=科目) → 每个账户一个「余额」标的（amount 模式）
+   data.js 由 git 管理；看板本身零依赖、零网络请求
+   ===================================================================== */
+const AC = {
+  equity:    { name:"权益",     color:"#2b5cff" },
+  bond:      { name:"债券",     color:"#7c5cff" },
+  cash_like: { name:"类现金",   color:"#0d9488" },
+  deposit:   { name:"存款理财", color:"#f59e0b" },
+  cash:      { name:"现金",     color:"#3fa9a0" },
+  other:     { name:"其他",     color:"#94a3b8" }
+};
+const CAT_NAME = {
+  securities:"证券", fund:"基金", bank:"银行理财", cash:"储蓄卡",
+  provident:"公积金", insurance:"保险", other:"其他", liability:"负债"
+};
+const LIAB_COLOR = "#c0504d";
+/* 只有「本机地址」才允许写盘：GitHub Pages 上不存在写文件的可能 */
+const IS_LOCAL = ["127.0.0.1", "localhost", ""].includes(location.hostname);
+const ONLINE = location.protocol.startsWith("http") && IS_LOCAL;
+
+const $ = id => document.getElementById(id);
+const fmt = n => (n==null||isNaN(n)) ? "—" : Number(n).toLocaleString("zh-CN",{minimumFractionDigits:2, maximumFractionDigits:2});
+const fmtSign = n => (n>=0?"+":"−") + Number(Math.abs(n)).toLocaleString("zh-CN",{minimumFractionDigits:2, maximumFractionDigits:2});
+const fmtWan = n => Math.abs(n) >= 10000 ? (n/10000).toFixed(1)+"万" : fmt(n);
+const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+const parseNum = v => {
+  if(v===null||v===undefined||v==="") return null;
+  const n = Number(String(v).replace(/[,\s¥]/g,""));
+  return isNaN(n) ? null : n;
+};
+
+/* 数据来源在 boot() 里决定：
+   ① 本地有 data.js → 明文直读（file:// 与本地服务）
+   ② 只有 data.enc.js → 弹密码框，Web Crypto 解密（GitHub Pages）
+   所以这里一开始不能拿 window.FINANCE_DATA，先留空 */
+let D = null;
+let accMap = {}, insMap = {};
+function reindex(){
+  accMap = Object.fromEntries(D.accounts.map(a=>[a.id,a]));
+  insMap = Object.fromEntries(D.instruments.map(i=>[i.id,i]));
+}
+
+const snapsAsc = () => [...D.snapshots].sort((a,b)=> a.month < b.month ? -1 : 1);
+const snapsDesc = () => snapsAsc().reverse();
+
+function toast(msg, kind){
+  const el = $("toast");
+  el.textContent = msg; el.className = "toast show " + (kind||"");
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.className = "toast"; }, kind==="warn" ? 6500 : 3200);
+}
+
+/* ============ 计算 ============ */
+function compute(snap){
+  const rows = snap.items.map(it=>{
+    const ins = insMap[it.instrument_id] || {};
+    const acc = accMap[ins.account_id] || {};
+    const mv = it.market_value || 0;
+    const liab = !!acc.liability;
+    return {
+      ...it,
+      acc_id: ins.account_id,
+      acc_name: acc.name || "—",
+      acc_owner: acc.owner || "",
+      acc_cat: acc.category || "other",
+      asset_class: liab ? "liability" : (ins.asset_class || "other"),
+      liability: liab,
+      mv,
+      signed: liab ? -mv : mv
+    };
+  });
+
+  const total = rows.reduce((s,r)=>s+r.signed, 0);
+  const assets = rows.filter(r=>!r.liability).reduce((s,r)=>s+r.mv,0);
+  const liabs  = rows.filter(r=>r.liability).reduce((s,r)=>s+r.mv,0);
+
+  const byClass = {};
+  rows.forEach(r=>{
+    const k = r.asset_class;
+    if(!byClass[k]) byClass[k] = { key:k, sum:0 };
+    byClass[k].sum += r.liability ? -r.mv : r.mv;
+  });
+
+  return {
+    rows, total, assets, liabs,
+    classes: Object.values(byClass).sort((a,b)=>Math.abs(b.sum)-Math.abs(a.sum))
+  };
+}
+
+/* ============ 月份选择 ============ */
+function renderSelect(){
+  const sel = $("monthSel");
+  sel.innerHTML = snapsDesc().map(s=>`<option value="${s.month}">${s.month.replace("-","年")}月</option>`).join("");
+  sel.onchange = () => renderView(sel.value);
+}
+
+/* ============ 查看 ============ */
+function renderView(month){
+  const desc = snapsDesc();
+  if(!desc.length) return;
+  const idx = desc.findIndex(s=>s.month===month);
+  const snap = desc[idx] || desc[0];
+  const prev = desc[idx+1] || null;
+
+  const cur = compute(snap);
+  const old = prev ? compute(prev) : null;
+
+  $("takenAt").textContent = snap.taken_at;
+  $("monthCount").textContent = D.snapshots.length;
+  $("accCount").textContent = D.accounts.length;
+
+  /* --- 净资产 --- */
+  $("netWorth").textContent = fmt(cur.total);
+
+  /* --- 较上一记录 --- */
+  const dBig = $("deltaBig"), dFoot = $("deltaFoot");
+  if(old){
+    const d = cur.total - old.total;
+    const r = old.total>0 ? d/old.total*100 : 0;
+    dBig.textContent = (d>=0?"+":"−") + "¥" + fmt(Math.abs(d));
+    dBig.className = "big num " + (d>=0 ? "up":"down");
+    dFoot.innerHTML = `<span class="${d>=0?'up':'down'}">${r>=0?"+":""}${r.toFixed(2)}%</span>
+      <span class="pill pill-grey">对比 ${prev.month}</span>`;
+    $("momText").innerHTML = `<span class="${d>=0?'up':'down'} num">${r>=0?"+":""}${r.toFixed(2)}%</span> 环比`;
+    $("momPill").textContent = `${prev.month} → ${snap.month}`;
+  } else {
+    dBig.textContent = "—"; dBig.className = "big num";
+    dFoot.textContent = "首份记录，下期可对比";
+    $("momText").textContent = "最早的一份记录";
+    $("momPill").textContent = "无环比";
+  }
+
+  /* --- 权益仓位 --- */
+  const eq = cur.classes.find(c=>c.key==="equity");
+  const eqSum = eq ? eq.sum : 0;
+  $("equityRatio").textContent = cur.total>0 ? (eqSum/cur.total*100).toFixed(1)+"%" : "—";
+  $("equityNote").textContent = `权益 ¥${fmtWan(eqSum)} ｜ 负债 ¥${fmtWan(cur.liabs)}`;
+
+  renderTrend(snap.month);
+  renderDonut(cur);
+  renderTable(cur, old);
+
+  if(snap.note){
+    $("footNote").style.display = "block";
+    $("footNote").innerHTML = `<b>本期备注：</b>${snap.note}`;
+  } else {
+    $("footNote").style.display = "none";
+  }
+}
+
+/* ============ 历史曲线 ============ */
+let LAST_TREND_MONTH = null;   // 记住当前月份，窗口变化时按新宽度重画
+function renderTrend(activeMonth){
+  LAST_TREND_MONTH = activeMonth;
+  const all = snapsAsc();
+  const pts = all.map(s=>{
+    const c = compute(s);
+    return { month:s.month, total:c.total, assets:c.assets, liabs:c.liabs };
+  });
+  if(pts.length < 2){ $("trendSvg").innerHTML = ""; return; }
+
+  /* 宽度跟随容器：手机上如果还按 1160 画，再被压到 340 宽，
+     文字会被横向挤扁。所以直接按真实像素画，1:1 不变形 */
+  const host = $("trendSvg").parentElement;
+  const W = Math.max(320, Math.round((host.clientWidth || 1160) - 24));
+  const H = W < 620 ? 200 : 250;
+  const padL = 10, padR = 14, padT = 26, padB = 30;
+  const iw = W - padL - padR, ih = H - padT - padB;
+
+  const vals = pts.map(p=>p.total);
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const span = (vmax - vmin) || 1;
+  const yMin = vmin - span*0.14, yMax = vmax + span*0.14;
+
+  const X = i => padL + (pts.length===1 ? iw/2 : i*(iw/(pts.length-1)));
+  const Y = v => padT + ih - ((v - yMin)/(yMax - yMin))*ih;
+
+  /* 横向网格（4 档） */
+  let grid = "";
+  for(let g=0; g<=3; g++){
+    const v = yMin + (yMax-yMin)*(g/3);
+    const y = Y(v);
+    grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}"
+      stroke="#eef0f4" stroke-width="1"/>
+      <text x="${padL+2}" y="${(y-5).toFixed(1)}" font-size="10" fill="#b3bac6">${(v/10000).toFixed(0)}万</text>`;
+  }
+
+  /* 折线 + 面积 */
+  const line = pts.map((p,i)=>`${i?"L":"M"}${X(i).toFixed(1)},${Y(p.total).toFixed(1)}`).join(" ");
+  const area = `${line} L${X(pts.length-1).toFixed(1)},${(padT+ih).toFixed(1)} L${X(0).toFixed(1)},${(padT+ih).toFixed(1)} Z`;
+
+  /* 数据点 + 悬停提示 */
+  let dots = "";
+  const step = Math.max(1, Math.floor(pts.length/(W < 620 ? 6 : 14)));
+  pts.forEach((p,i)=>{
+    const isLast = i===pts.length-1;
+    const isActive = p.month===activeMonth;
+    if(i % step === 0 || isLast || isActive){
+      dots += `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.total).toFixed(1)}" r="${isActive?4.5:3}"
+        fill="#fff" stroke="${isActive?'#2b5cff':'#9db4ee'}" stroke-width="${isActive?2.5:1.6}">
+        <title>${p.month}　¥${fmt(p.total)}</title></circle>`;
+    }
+  });
+
+  /* x 轴标签 */
+  let labels = "";
+  const lstep = Math.max(1, Math.ceil(pts.length/(W < 620 ? 4 : 8)));
+  const lastIdx = pts.length - 1;
+  /* 最后一个月份必须显示，但如果它和上一个标签挤在一起，
+     就让上一个让位——两个日期叠成一串比少一个标签糟得多 */
+  const minGap = W < 620 ? 54 : 62;
+  pts.forEach((p,i)=>{
+    const isLast = i === lastIdx;
+    if(!isLast){
+      if(i % lstep !== 0) return;
+      if(X(lastIdx) - X(i) < minGap) return;
+    }
+    const anchor = i===0 ? "start" : (isLast ? "end" : "middle");
+    labels += `<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="10.5" fill="#9aa2b1"
+      text-anchor="${anchor}">${p.month}</text>`;
+  });
+
+  /* 末点数值标注 */
+  const last = pts[pts.length-1];
+  const lastLabel = `<text x="${(X(pts.length-1)-4).toFixed(1)}" y="${(Y(last.total)-12).toFixed(1)}"
+    font-size="12" font-weight="600" fill="#2b5cff" text-anchor="end">${fmtWan(last.total)}</text>`;
+
+  $("trendSvg").setAttribute("viewBox", `0 0 ${W} ${H}`);
+  $("trendSvg").innerHTML = `
+    <defs>
+      <linearGradient id="gArea" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#2b5cff" stop-opacity=".16"/>
+        <stop offset="100%" stop-color="#2b5cff" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    ${grid}
+    <path d="${area}" fill="url(#gArea)"/>
+    <path d="${line}" fill="none" stroke="#2b5cff" stroke-width="2.2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}${labels}${lastLabel}
+  `;
+
+  const first = pts[0];
+  const growth = first.total>0 ? (last.total-first.total)/first.total*100 : 0;
+  $("trendHint").textContent = `${pts.length} 个记录点`;
+  $("chartFoot").innerHTML = `
+    <span>起点 <b>${first.month}</b> ¥${fmtWan(first.total)}</span>
+    <span>最新 <b>${last.month}</b> ¥${fmt(last.total)}</span>
+    <span>累计增长 <b class="${growth>=0?'up':'down'}">${growth>=0?"+":""}${growth.toFixed(1)}%</b></span>
+    <span>最高 ¥${fmtWan(Math.max(...vals))} ｜ 最低 ¥${fmtWan(Math.min(...vals))}</span>
+  `;
+}
+
+/* ============ 环形图 ============ */
+function renderDonut(cur){
+  const svg = $("donutSvg");
+  const R = 76, C = 2*Math.PI*R, cx = 100, cy = 100, w = 28;
+  const denom = cur.classes.reduce((s,c)=>s+Math.abs(c.sum),0) || 1;
+
+  let offset = 0, arcs = "";
+  cur.classes.forEach(c=>{
+    const frac = Math.abs(c.sum)/denom;
+    const len = frac*C;
+    const color = c.key==="liability" ? LIAB_COLOR : (AC[c.key]||AC.other).color;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${color}" stroke-width="${w}"
+      stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}"
+      stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})">
+      <title>${c.key==="liability"?"负债":(AC[c.key]||AC.other).name} ${fmt(c.sum)}</title></circle>`;
+    offset += len;
+  });
+
+  svg.innerHTML = `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#f3f5f8" stroke-width="${w}"/>` + arcs;
+  $("donutTotal").textContent = fmtWan(cur.total);
+
+  $("legend").innerHTML = cur.classes.map(c=>{
+    const isL = c.key==="liability";
+    const color = isL ? LIAB_COLOR : (AC[c.key]||AC.other).color;
+    const name = isL ? "负债" : (AC[c.key]||AC.other).name;
+    return `<div class="lg">
+      <span class="dot" style="background:${color}"></span>
+      <span class="name">${name}</span>
+      <span class="amt num">${isL?"−":""}${fmtWan(Math.abs(c.sum))}</span>
+      <span class="pct num">${(Math.abs(c.sum)/denom*100).toFixed(1)}%</span>
+    </div>`;
+  }).join("");
+}
+
+/* ============ 科目明细表 ============ */
+function renderTable(cur, old){
+  const total = cur.total || 1;
+  const prevMap = {};
+  if(old) old.rows.forEach(r=> prevMap[r.acc_id] = r);
+
+  /* 按 资产 → 负债 排序，同类内按金额降序 */
+  const rows = [...cur.rows].sort((a,b)=>{
+    if(a.liability !== b.liability) return a.liability ? 1 : -1;
+    return b.mv - a.mv;
+  });
+
+  $("tbody").innerHTML = rows.map(r=>{
+    const p = prevMap[r.acc_id];
+    const prevMv = p ? p.mv : null;
+    let deltaTxt = "—", deltaCls = "";
+    if(prevMv != null){
+      const d = r.mv - prevMv;
+      if(Math.abs(d) < 0.005){ deltaTxt = "—"; }
+      else{
+        const rate = prevMv>0 ? d/prevMv*100 : null;
+        deltaTxt = `<span class="${d>=0?'up':'down'} num">${fmtSign(d)}</span>`
+          + (rate!=null ? `<div style="font-size:10px;color:#b3bac6" class="num">${rate>=0?"+":""}${rate.toFixed(1)}%</div>` : "");
+      }
+    } else if(old){
+      deltaTxt = `<span style="color:#b3bac6;font-size:11px">新增</span>`;
+    }
+
+    const ownCls = r.acc_owner === "慧" ? "hui" : (r.acc_owner === "麟" ? "lin" : "");
+    const sign = r.liability ? "−" : "";
+
+    return `<tr>
+      <td><div class="nm-cell">
+        <span class="n">${r.acc_name}${r.liability?'<span class="liab-tag">负债</span>':""}</span>
+        <span class="m">${CAT_NAME[r.acc_cat]||""}</span>
+      </div></td>
+      <td style="text-align:center"><span class="own ${ownCls}">${r.acc_owner||"—"}</span></td>
+      <td class="num" style="font-weight:600;color:${r.liability?'var(--up)':'inherit'}">${sign}${fmt(r.mv)}</td>
+      <td class="num prev-val">${prevMv!=null?(p.liability?"−":"")+fmt(prevMv):"—"}</td>
+      <td class="num">${deltaTxt}</td>
+      <td class="num" style="color:#8b93a3">${(r.signed/total*100).toFixed(1)}%</td>
+    </tr>`;
+  }).join("");
+
+  $("itemHint").textContent = `${cur.rows.length} 项 ｜ 资产 ¥${fmtWan(cur.assets)} ｜ 负债 ¥${fmtWan(cur.liabs)}`;
+}
+
+/* =====================================================================
+   录入
+   ===================================================================== */
+let EDIT = null;
+
+function nextMonth(m){
+  const [y, mm] = m.split("-").map(Number);
+  const d = new Date(y, mm, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+function todayStr(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+function enterEdit(){
+  const desc = snapsDesc();
+  const latest = desc[0];
+  const target = latest ? nextMonth(latest.month) : todayStr().slice(0,7);
+
+  const base = latest || { items: [] };
+  EDIT = {
+    month: target,
+    taken_at: todayStr(),
+    note: "",
+    items: D.instruments.map(ins=>{
+      const prev = (base.items||[]).find(x=>x.instrument_id===ins.id);
+      return {
+        instrument_id: ins.id,
+        quantity: null, price: null, cost_price: null,
+        market_value: prev ? prev.market_value : null,
+        cost_value: null, note: "",
+        _prev: prev ? prev.market_value : null
+      };
+    })
+  };
+
+  document.body.classList.add("editing");
+  $("editMonth").value = EDIT.month;
+  $("editNote").value = EDIT.note || "";
+  $("editHint").textContent = latest
+    ? `已预填 ${latest.month} 的全部数值，只改动的格子`
+    : "新增第一期";
+  $("modeNote").innerHTML = ONLINE
+    ? '当前通过<code>本地服务</code>打开，保存会<b>直接写入 data.js</b>。'
+    : '当前是<code>file://</code>直接打开，浏览器不允许写本地文件。点「保存」会<b>下载一份 data.js</b>，你需要把它拖回 <code>finance-dashboard</code> 目录覆盖原文件。<br>嫌麻烦就双击 <code>启动录入.command</code>，那样可以直接存盘。';
+  renderEditor();
+}
+
+function exitEdit(){ document.body.classList.remove("editing"); EDIT = null; }
+
+function renderEditor(){
+  let html = "";
+  /* 资产在前，负债在后 */
+  const sorted = [...D.accounts].sort((a,b)=>{
+    if(a.liability !== b.liability) return a.liability ? 1 : -1;
+    return (a.order||0)-(b.order||0);
+  });
+
+  sorted.forEach(acc=>{
+    const ins = D.instruments.find(i=>i.account_id===acc.id);
+    if(!ins) return;
+    const i = EDIT.items.findIndex(x=>x.instrument_id===ins.id);
+    if(i < 0) return;
+    const it = EDIT.items[i];
+    const ownCls = acc.owner==="慧" ? "hui" : (acc.owner==="麟" ? "lin" : "");
+    /* 负债统一按正数呈现，和输入口径一致 */
+    const prevTxt = it._prev!=null ? fmt(it._prev) : "—";
+
+    html += `<tr>
+      <td><div class="nm-cell">
+        <span class="n">${acc.name}${acc.liability?'<span class="liab-tag">负债</span>':""}</span>
+        <span class="m">${CAT_NAME[acc.category]||""}${acc.liability?" · 填未还金额（正数）":""}</span>
+      </div></td>
+      <td style="text-align:center"><span class="own ${ownCls}">${acc.owner||"—"}</span></td>
+      <td class="num prev-val">${prevTxt}</td>
+      <td><input class="ei" type="number" step="any" data-i="${i}" value="${it.market_value ?? ""}" placeholder="—"></td>
+      <td class="num" data-delta="${i}"></td>
+    </tr>`;
+  });
+
+  $("editBody").innerHTML = html;
+  $("editBody").addEventListener("input", e=>{
+    const el = e.target;
+    if(!el.classList.contains("ei")) return;
+    const i = +el.dataset.i;
+    EDIT.items[i].market_value = parseNum(el.value);
+    refreshDelta(i);
+    refreshTotals();
+  });
+  EDIT.items.forEach((_,i)=> refreshDelta(i));
+  refreshTotals();
+}
+
+function refreshDelta(i){
+  const it = EDIT.items[i];
+  const el = document.querySelector(`[data-delta="${i}"]`);
+  if(!el) return;
+  const ins = insMap[it.instrument_id] || {};
+  const acc = accMap[ins.account_id] || {};
+  const cur = it.market_value;
+  const prev = it._prev;
+
+  if(cur==null){ el.textContent = ""; return; }
+  if(prev==null){ el.innerHTML = `<span style="color:#b3bac6;font-size:11px">新增</span>`; return; }
+  const d = cur - prev;
+  if(Math.abs(d) < 0.005){ el.textContent = "—"; el.style.color = ""; return; }
+  el.innerHTML = `<span class="num" style="color:${d>=0?'var(--up)':'var(--down)'}">${fmtSign(d)}</span>`;
+}
+
+function refreshTotals(){
+  let total = 0, assets = 0, liabs = 0;
+  EDIT.items.forEach(it=>{
+    const ins = insMap[it.instrument_id] || {};
+    const acc = accMap[ins.account_id] || {};
+    const v = it.market_value || 0;
+    if(acc.liability){ liabs += v; total -= v; }
+    else { assets += v; total += v; }
+  });
+  $("editSum").innerHTML = `
+    <div><span class="k">净资产</span><span class="v num">¥${fmt(total)}</span></div>
+    <div><span class="k">资产合计</span><span class="v num" style="font-weight:560">¥${fmt(assets)}</span></div>
+    <div><span class="k">负债合计</span><span class="v num" style="font-weight:560;color:var(--up)">¥${fmt(liabs)}</span></div>
+  `;
+}
+
+/* ============ 保存 ============ */
+function buildPayload(){
+  const snap = {
+    month: EDIT.month,
+    taken_at: EDIT.taken_at || todayStr(),
+    note: EDIT.note || "",
+    items: EDIT.items
+      .filter(it=> it.market_value != null && it.market_value !== 0)
+      .map(it=>({
+        instrument_id: it.instrument_id,
+        quantity: null, price: null, cost_price: null,
+        market_value: r2(it.market_value),
+        cost_value: null, note: ""
+      }))
+  };
+  const rest = D.snapshots.filter(s=>s.month !== snap.month);
+  return {
+    schema_version: D.schema_version || 2,
+    updated_at: new Date().toISOString().slice(0,19),
+    currency: D.currency || "CNY",
+    source: D.source || "",
+    accounts: D.accounts,
+    instruments: D.instruments,
+    snapshots: [...rest, snap].sort((a,b)=> a.month < b.month ? -1 : 1)
+  };
+}
+
+function serializeJS(data){
+  return `/* ============================================================
+ * 家庭财务看板 · 数据文件
+ * 这个文件就是你的账本，由 git 管理，每次盘点一次 commit
+ * 生成时间：${data.updated_at}
+ * 说明：用 .js 而不是 .json，是为了让 file:// 下双击就能读
+ * ============================================================ */
+
+window.FINANCE_DATA = ` + JSON.stringify(data, null, 2) + ";\n";
+}
+
+async function save(){
+  if(!EDIT) return;
+  const payload = buildPayload();
+  const text = serializeJS(payload);
+  const targetMonth = EDIT.month;
+
+  if(ONLINE){
+    try{
+      const res = await fetch("/api/save", {
+        method:"POST",
+        headers:{"Content-Type":"application/json; charset=utf-8"},
+        body: text
+      });
+      const j = await res.json();
+      if(!j.ok) throw new Error(j.error || "写入失败");
+      D = payload; reindex();
+      exitEdit(); renderSelect(); renderView(targetMonth);
+      toast("已保存到 data.js", "ok");
+      return;
+    }catch(err){
+      toast("直接写盘失败：" + err.message + "，改用下载方式", "warn");
+    }
+  }
+
+  const blob = new Blob([text], {type:"text/javascript;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "data.js";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  toast("已下载 data.js —— 拖回 finance-dashboard 目录覆盖原文件即可", "warn");
+}
+
+/* ============ 事件 ============ */
+/* 曲线按容器真实宽度画，横竖屏切换后要重画，否则会被拉伸变形 */
+let _rt;
+window.addEventListener("resize", () => {
+  clearTimeout(_rt);
+  _rt = setTimeout(() => {
+    if (D && LAST_TREND_MONTH) renderTrend(LAST_TREND_MONTH);
+  }, 180);
+});
+$("btnEdit").onclick = enterEdit;
+$("btnCancel").onclick = () => { if(confirm("放弃本次修改？")) exitEdit(); };
+$("btnSave").onclick = save;
+$("editMonth").onchange = e => { EDIT.month = e.target.value; };
+$("editNote").oninput = e => { EDIT.note = e.target.value; };
+$("btnReset").onclick = () => {
+  if(!confirm("把所有数值重置为上一期？")) return;
+  const desc = snapsDesc();
+  const prev = desc.find(s=>s.month < EDIT.month) || desc[0];
+  if(!prev) return toast("没有可带入的历史快照", "warn");
+  EDIT.items.forEach(it=>{
+    const p = prev.items.find(x=>x.instrument_id===it.instrument_id);
+    it.market_value = p ? p.market_value : null;
+  });
+  renderEditor();
+  toast(`已重置为 ${prev.month} 的数值`);
+};
+
+/* ============ 数据装载 ============
+   同一个页面要跑在两种环境里：
+   · 本机（file:// 或 127.0.0.1）→ data.js 明文，双击即开，无需密码
+   · 线上（https，GitHub Pages）→ data.enc.js 密文，输密码在浏览器内解密
+   模式不靠猜域名，而是看哪个数据文件真的加载成功了——这是事实判断，
+   局域网 IP 访问、端口转发这些情况都不会误判 */
+const KEY_STORE = "finance.key.v1";
+let DATA_MODE = null;          // "plain" | "enc"
+
+function loadScript(src){
+  return new Promise(resolve => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload  = () => resolve(true);
+    s.onerror = () => resolve(false);   // 文件不存在就静默跳过，不污染控制台
+    document.head.appendChild(s);
+  });
+}
+
+const b64buf = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function deriveKey(pass, salt, iter){
+  const base = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name:"PBKDF2", salt, iterations: iter, hash:"SHA-256" },
+    base, { name:"AES-GCM", length:256 },
+    true,                          // extractable，为了「记住密码」能导出原始密钥
+    ["decrypt"]);
+}
+
+/* 密文结构：salt(16) + iv(12) + ciphertext + tag(16)
+   Web Crypto 的 AES-GCM 正好吃「ciphertext||tag」，所以 iv 之后整段直接丢进去 */
+async function decryptWith(key, blob){
+  const all  = b64buf(blob);
+  const iv   = all.subarray(16, 28);
+  const body = all.subarray(28);
+  const plain = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, body);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+function showLock(msg){
+  $("lock").classList.add("show");
+  if (msg) $("lockErr").textContent = msg;
+  setTimeout(() => $("lockPass").focus(), 120);
+}
+
+async function tryCachedKey(){
+  const cached = localStorage.getItem(KEY_STORE);
+  if (!cached) return false;
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw", b64buf(cached), { name:"AES-GCM", length:256 }, true, ["decrypt"]);
+    start(await decryptWith(key, window.FINANCE_ENC.blob));
+    return true;
+  } catch {
+    localStorage.removeItem(KEY_STORE);   // 密码换过了，旧钥匙作废
+    return false;
+  }
+}
+
+function wireLock(){
+  const input = $("lockPass"), btn = $("lockBtn"), err = $("lockErr");
+  const submit = async () => {
+    const pass = input.value.trim();
+    if (!pass) { err.textContent = "请输入密码"; return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span>解密中…';
+    err.textContent = "";
+
+    try {
+      const all  = b64buf(window.FINANCE_ENC.blob);
+      const salt = all.subarray(0, 16);
+      // PBKDF2 六十万次，手机上要一两秒，按钮上的转圈就是这个时间
+      const key  = await deriveKey(pass, salt, window.FINANCE_ENC.iter);
+      const data = await decryptWith(key, window.FINANCE_ENC.blob);
+
+      if ($("lockMem").checked) {
+        const raw = await crypto.subtle.exportKey("raw", key);
+        localStorage.setItem(KEY_STORE, btoa(String.fromCharCode(...new Uint8Array(raw))));
+      } else {
+        localStorage.removeItem(KEY_STORE);
+      }
+
+      $("lock").classList.remove("show");
+      start(data);
+    } catch {
+      err.textContent = "密码不对";
+      btn.disabled = false;
+      btn.textContent = "解锁";
+      input.select();
+    }
+  };
+
+  btn.onclick = submit;
+  input.onkeydown = e => { if (e.key === "Enter") submit(); };
+}
+
+function fatal(msg){
+  document.body.innerHTML =
+    `<div style="max-width:520px;margin:120px auto;text-align:center;color:#8b93a3;
+                 font:14px/1.8 -apple-system,'PingFang SC',sans-serif">
+       <div style="font-size:34px;margin-bottom:14px">🗂</div>
+       <h2 style="color:#15171c;font-size:16px;font-weight:620;margin-bottom:8px">没有找到数据</h2>
+       <p>${msg}</p>
+     </div>`;
+}
+
+function start(data){
+  D = data || window.FINANCE_DATA;
+  reindex();
+
+  // 密文模式必然是线上部署：静态页面没有写本地文件的能力，留着录入按钮只会误导。
+  // 同时把顶部提示换成「只读」的说法，免得以为点了没反应是坏了。
+  if (DATA_MODE === "enc") {
+    const be = $("btnEdit");
+    if (be) be.style.display = "none";
+    document.body.classList.add("readonly");
+  }
+
+  renderSelect();
+  if (D.snapshots.length) renderView(snapsDesc()[0].month);
+  if (DATA_MODE !== "enc" && new URLSearchParams(location.search).get("edit") === "1") enterEdit();
+}
+
+(async function boot(){
+  // ① 明文优先：本机双击或走本地服务时走这条，零摩擦
+  if (await loadScript("data.js") && window.FINANCE_DATA) {
+    DATA_MODE = "plain";
+    start();
+    return;
+  }
+
+  // ② 密文：线上部署走这条
+  if (await loadScript("data.enc.js") && window.FINANCE_ENC) {
+    DATA_MODE = "enc";
+    if (!window.crypto || !crypto.subtle) {
+      fatal("当前环境不允许浏览器内解密。请用 https 或 localhost 打开，<br>直接双击本地文件时请改用明文 data.js。");
+      return;
+    }
+    wireLock();
+    if (!(await tryCachedKey())) showLock();
+    return;
+  }
+
+  // ③ 两个都没有
+  fatal("请确认 data.js（本地明文）或 data.enc.js（线上密文）与页面在同一目录。");
+})();
+</script>
+</body>
+</html>
