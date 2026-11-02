@@ -178,6 +178,15 @@ td input.carried{color:var(--muted); background:#fcfcfd}
 .lock-mem input{margin:0}
 .lock-err{font-size:12px; color:#c0392b; min-height:18px; margin-top:8px}
 .lock-foot{font-size:11px; color:#aab1bd; line-height:1.8; margin-top:12px; border-top:1px solid var(--line2); padding-top:11px}
+/* 线上保存后的落地指引：文件在哪、放哪、执行什么 */
+.exp-file{font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--accent-bg);
+  color:#2f6feb; border-radius:8px; padding:9px 10px; margin:0 0 12px; word-break:break-all; text-align:left}
+.exp-steps{font-size:12.5px; color:#4a5160; line-height:1.9; margin:0 0 10px; padding-left:18px; text-align:left}
+.exp-cmd{font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; background:#15171c; color:#e8eaef;
+  border-radius:8px; padding:10px 11px; margin:0 0 14px; text-align:left; word-break:break-all; user-select:all}
+/* 线上录入时提醒一句：这里的保存是下载，不是写盘 */
+.enc-note{font-size:10.5px; color:#8a5a00; background:#fff6e3; border:1px solid #f3dcae;
+  border-radius:5px; padding:1px 6px; margin-left:7px; white-space:nowrap}
 .who-pick{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px}
 .who{border:1.5px solid var(--line); border-radius:11px; padding:12px 6px 9px; cursor:pointer; transition:.15s}
 .who:hover{border-color:#c9d6f5}
@@ -396,7 +405,8 @@ td input.carried{color:var(--muted); background:#fcfcfd}
   <!-- ==================== 录入 ==================== -->
   <div id="editor" hidden>
     <div class="edit-bar">
-      <div class="bar-title">月度录入 <small id="editHint"></small></div>
+      <div class="bar-title">月度录入 <small id="editHint"></small>
+        <small class="enc-note" id="encNote" hidden>线上保存＝下载一份 data.js</small></div>
       <input type="month" id="editMonth" style="width:150px">
       <button id="btnReset" class="btn-xs">全部沿用上期</button>
       <button id="btnCancel" class="btn-xs">取消</button>
@@ -509,6 +519,24 @@ td input.carried{color:var(--muted); background:#fcfcfd}
     <div class="lock-err" id="loginErr"></div>
     <div class="lock-foot">账号固定在本机账本（<code>data.js</code>）里，密码只做本机校验<br>
       两人权限相同：都能看全部数据、都能录入</div>
+  </div>
+</div>
+
+<!-- 线上保存之后：文件下到哪、回电脑怎么落地 -->
+<div class="lock" id="expDone">
+  <div class="lock-card">
+    <div class="lock-ico">📄</div>
+    <h2>已生成一份 data.js</h2>
+    <p>网页拿不到你的文件夹，所以这里的「保存」＝下载。<br>
+      把它放回项目目录，再跑一条命令就上线了。</p>
+    <div class="exp-file" id="expFile"></div>
+    <ol class="exp-steps">
+      <li>把文件传到电脑（AirDrop、微信「文件传输助手」都行）</li>
+      <li>在 finance-dashboard 目录里执行</li>
+    </ol>
+    <div class="exp-cmd" id="expCmd"></div>
+    <button class="btn-primary" id="expOk">知道了</button>
+    <div class="lock-foot">这份文件是明文账本，含全部历史<br>导入完记得删掉手机上的副本</div>
   </div>
 </div>
 
@@ -1404,6 +1432,12 @@ async function save() {
   const text = serializeJS(payload);
   const targetMonth = EDIT.month;
 
+  /* 线上（密文模式）：写不了盘，改成下载一份明文 data.js，回电脑一条命令落地 */
+  if (DATA_MODE === "enc") {
+    exportPlain(payload, targetMonth, carryTail);
+    return;
+  }
+
   if (ONLINE) {
     try {
       const res = await fetch("/api/save", {
@@ -1422,17 +1456,44 @@ async function save() {
     }
   }
 
-  const blob = new Blob([text], { type: "text/javascript;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "data.js";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  downloadText("data.js", text);
 
   // 下载模式下本地也要能继续用
   D = payload; reindex();
   exitEdit(); renderSelect(); renderView(targetMonth);
   toast("已下载 data.js" + carryTail + " —— 拖回 finance-dashboard 目录覆盖原文件即可", "warn");
+}
+
+function downloadText(name, text){
+  const blob = new Blob([text], { type: "text/javascript;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+/* ============ 线上保存：下载一份明文 data.js，回电脑一条命令落地 ============
+   静态页面写不了盘。这里是「不加密」的直白做法：把整本账（含全部历史）
+   原样序列化成和本地一模一样的 data.js，下载到手机/电脑的下载目录。
+   文件名带月份和时间戳，绝不覆盖已有的 data.js —— 覆盖与否由你在电脑上决定。 */
+function exportPlain(payload, month, carryTail){
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  const fileName = `data-${month}-${stamp}.js`;
+
+  downloadText(fileName, serializeJS(payload));
+
+  // 面板上写清「文件叫什么、命令怎么敲」，不用回头问人
+  $("expFile").textContent = fileName;
+  $("expCmd").textContent  = `./import.sh ~/Downloads/${fileName}`;
+  $("expDone").classList.add("show");
+
+  // 本页也切到新状态，免得看着像没保存
+  D = payload; reindex();
+  exitEdit(); renderSelect(); renderView(month);
+  toast("已下载 " + fileName + carryTail, "warn");
 }
 
 /* ==================== 事件 ==================== */
@@ -1870,13 +1931,23 @@ function start(data, whoShort){
   D = data || window.FINANCE_DATA;
   reindex();
 
-  // 密文模式必然是线上部署：静态页面没有写本地文件的能力，留着录入按钮只会误导。
-  // 同时把顶部提示换成「只读」的说法，免得以为点了没反应是坏了。
+  /* 密文模式是线上部署：能编辑，但静态页写不了文件，
+     所以「保存」改成下载一份明文 data.js，回电脑跑 ./import.sh 落地。
+     这里只打个标记，不把录入按钮藏掉——藏了就等于没这个功能，也没人知道为什么 */
   if (DATA_MODE === "enc") {
-    const be = $("btnEdit");
-    if (be) be.style.display = "none";
-    document.body.classList.add("readonly");
+    document.body.classList.add("enc-mode");
+    // 按钮改个名字，别让人以为点了就写盘了
+    const note = document.getElementById("encNote");
+    if (note) note.hidden = false;
+    ["btnSave", "btnSave2"].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.textContent = "保存并下载";
+    });
   }
+
+  // 导出面板的「知道了」：只关面板，数据已经在页面上了
+  const expOk = document.getElementById("expOk");
+  if (expOk) expOk.onclick = () => $("expDone").classList.remove("show");
 
   wireUserChip();
   wireLogin();
